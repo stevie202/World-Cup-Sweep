@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "PowerShell($env:PATH = \"$env:PATH;C:\\\\Program Files\\\\nodejs\"; cd \"C:\\\\Users\\\\stevi\\\\Code\\\\World-Cup-Sweep\"; node --version; npm --version)",
+      "PowerShell($env:PATH -split \";\" | Where-Object { $_ -match \"node|nvm|npm\" })"
+    ]
+  }
+}
