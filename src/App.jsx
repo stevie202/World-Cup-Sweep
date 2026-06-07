@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import LZString from 'lz-string'
 
 // ─── PLAYERS ────────────────────────────────────────────────────────────────
 
@@ -64,24 +65,13 @@ const STAGE_BONUS = {
 // ─── SCORING ─────────────────────────────────────────────────────────────────
 
 function computeMatchPoints(match) {
-  const { gf, ga, stage, starScored } = match
+  const { gf, ga, starScored } = match
   let pts = 0
-
-  // Result
   if (gf > ga) pts += 3
   else if (gf === ga) pts += 1
-  // loss = 0
-
-  // Goals scored bonus
   pts += gf
-
-  // Clean sheet
   if (ga === 0) pts += 1
-
-  // Stage bonus (one-time per stage advance, tracked in aggregation)
-  // Star bonus
   if (starScored) pts += 3
-
   return pts
 }
 
@@ -96,27 +86,18 @@ function aggregatePlayer(pid, matches) {
     totalPts += computeMatchPoints(m)
     gf += m.gf
     ga += m.ga
-    if (m.stage && m.stage !== 'group') {
-      stagesReached.add(m.stage)
-    }
+    if (m.stage && m.stage !== 'group') stagesReached.add(m.stage)
   }
 
-  // Stage bonuses (each stage reached once)
   let stageBonus = 0
-  for (const s of stagesReached) {
-    stageBonus += STAGE_BONUS[s] || 0
-  }
+  for (const s of stagesReached) stageBonus += STAGE_BONUS[s] || 0
   totalPts += stageBonus
 
-  // Current stage = highest reached
   let currentStageRank = 0
   let currentStage = 'group'
   for (const m of playerMatches) {
     const rank = STAGES[m.stage]?.rank ?? 0
-    if (rank > currentStageRank) {
-      currentStageRank = rank
-      currentStage = m.stage
-    }
+    if (rank > currentStageRank) { currentStageRank = rank; currentStage = m.stage }
   }
 
   return { pid, totalPts, gf, ga, currentStage, currentStageRank, matchCount: playerMatches.length }
@@ -124,10 +105,7 @@ function aggregatePlayer(pid, matches) {
 
 function buildLeaderboard(matches) {
   return PLAYERS
-    .map(p => {
-      const agg = aggregatePlayer(p.id, matches)
-      return { ...p, ...agg }
-    })
+    .map(p => ({ ...p, ...aggregatePlayer(p.id, matches) }))
     .sort((a, b) => {
       if (b.totalPts !== a.totalPts) return b.totalPts - a.totalPts
       if (b.currentStageRank !== a.currentStageRank) return b.currentStageRank - a.currentStageRank
@@ -147,7 +125,7 @@ function fingerprint(m) {
 const LS_MATCHES = 'wcs_matches'
 const LS_DISMISSED = 'wcs_dismissed'
 const LS_LAST_FETCH = 'wcs_last_fetch'
-const FETCH_THROTTLE_MS = 20 * 60 * 60 * 1000 // 20 hours
+const FETCH_THROTTLE_MS = 20 * 60 * 60 * 1000
 
 function loadMatches() {
   try { return JSON.parse(localStorage.getItem(LS_MATCHES)) || [] } catch { return [] }
@@ -163,6 +141,69 @@ function getLastFetch() {
   try { return parseInt(localStorage.getItem(LS_LAST_FETCH) || '0', 10) } catch { return 0 }
 }
 function setLastFetch(ts) { localStorage.setItem(LS_LAST_FETCH, String(ts)) }
+
+// ─── SHARING ─────────────────────────────────────────────────────────────────
+
+function encodeSharePayload(matches) {
+  const payload = {
+    ts: Date.now(),
+    matches: matches.map(({ pid, opponent, gf, ga, stage, starScored, date }) => ({
+      pid, opponent, gf, ga, stage, starScored, date,
+    })),
+  }
+  return LZString.compressToEncodedURIComponent(JSON.stringify(payload))
+}
+
+function decodeSharePayload(encoded) {
+  try {
+    const json = LZString.decompressFromEncodedURIComponent(encoded)
+    if (!json) return null
+    return JSON.parse(json)
+  } catch {
+    return null
+  }
+}
+
+function buildShareURL(matches) {
+  const encoded = encodeSharePayload(matches)
+  const base = window.location.origin + window.location.pathname
+  return `${base}#/view?d=${encoded}`
+}
+
+async function copyToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.style.cssText = 'position:fixed;opacity:0;top:0;left:0'
+    document.body.appendChild(ta)
+    ta.select()
+    document.execCommand('copy')
+    document.body.removeChild(ta)
+  }
+}
+
+// ─── HASH ROUTER ─────────────────────────────────────────────────────────────
+
+function useHashRoute() {
+  const [hash, setHash] = useState(() => window.location.hash)
+
+  useEffect(() => {
+    const handler = () => setHash(window.location.hash)
+    window.addEventListener('hashchange', handler)
+    return () => window.removeEventListener('hashchange', handler)
+  }, [])
+
+  if (hash.startsWith('#/view')) {
+    const qmark = hash.indexOf('?')
+    const search = qmark >= 0 ? hash.slice(qmark + 1) : ''
+    const params = new URLSearchParams(search)
+    return { route: 'view', d: params.get('d') }
+  }
+
+  return { route: 'main', d: null }
+}
 
 // ─── STYLES ──────────────────────────────────────────────────────────────────
 
@@ -221,7 +262,6 @@ const css = {
     display: 'flex',
     alignItems: 'center',
     gap: '12px',
-    transition: 'border-color 0.15s',
   }),
   rankNum: (rank) => ({
     fontFamily: 'Anton, sans-serif',
@@ -321,6 +361,9 @@ const css = {
     if (variant === 'accept') return { ...base, background: '#166534', color: '#86efac' }
     if (variant === 'dismiss') return { ...base, background: '#1f1520', color: '#9a7a8a', border: '1px solid #2a1f2a' }
     if (variant === 'danger') return { ...base, background: '#7f1d1d', color: '#fca5a5' }
+    if (variant === 'share') return { ...base, background: '#1a2a1a', color: '#4ade80', border: '1px solid #2a4a2a' }
+    if (variant === 'share-done') return { ...base, background: '#166534', color: '#86efac', border: 'none' }
+    if (variant === 'share-warn') return { ...base, background: '#3a2800', color: '#fbbf24', border: '1px solid #5a4000' }
     return { ...base, background: '#1a2030', color: '#e8ecf4', border: '1px solid #2a3348' }
   },
   fetchStatus: {
@@ -343,9 +386,7 @@ const css = {
     gap: '8px',
     marginBottom: '10px',
   },
-  sugFlag: {
-    fontSize: '20px',
-  },
+  sugFlag: { fontSize: '20px' },
   sugTeam: {
     fontFamily: 'Anton, sans-serif',
     fontSize: '15px',
@@ -379,10 +420,7 @@ const css = {
     color: '#3d5070',
     marginBottom: '12px',
   },
-  sugActions: {
-    display: 'flex',
-    gap: '8px',
-  },
+  sugActions: { display: 'flex', gap: '8px' },
   modalOverlay: {
     position: 'fixed',
     inset: 0,
@@ -410,9 +448,7 @@ const css = {
     marginBottom: '20px',
     color: '#e8ecf4',
   },
-  formGroup: {
-    marginBottom: '14px',
-  },
+  formGroup: { marginBottom: '14px' },
   label: {
     fontFamily: 'Spline Sans Mono, monospace',
     fontSize: '10px',
@@ -489,7 +525,6 @@ const css = {
     lineHeight: 1,
     padding: '2px 4px',
     borderRadius: '4px',
-    transition: 'color 0.15s',
   },
   emptyState: {
     fontFamily: 'Spline Sans Mono, monospace',
@@ -528,48 +563,65 @@ const css = {
     color: '#f87171',
     marginTop: '10px',
   },
+  readonlyBanner: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '8px',
+    background: '#0d1a0d',
+    border: '1px solid #1a3a1a',
+    borderRadius: '8px',
+    padding: '7px 14px',
+    marginTop: '14px',
+    fontFamily: 'Spline Sans Mono, monospace',
+    fontSize: '11px',
+    color: '#4ade80',
+    letterSpacing: '0.05em',
+  },
 }
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 
-function playerByPid(pid) {
-  return PLAYERS.find(p => p.id === pid)
+function playerByPid(pid) { return PLAYERS.find(p => p.id === pid) }
+function stageLabel(s) { return STAGES[s]?.label || s }
+function fmtPoints(n) { return n === 1 ? '1 pt' : `${n} pts` }
+
+function formatAge(seconds) {
+  if (seconds < 60) return `${seconds}s`
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`
+  return `${Math.floor(seconds / 86400)}d`
 }
 
-function stageLabel(s) {
-  return STAGES[s]?.label || s
-}
+// ─── ROOT — hash router ───────────────────────────────────────────────────────
 
-function fmtPoints(n) {
-  return n === 1 ? '1 pt' : `${n} pts`
+export default function App() {
+  const { route, d } = useHashRoute()
+  if (route === 'view') return <ReadOnlyView encoded={d} />
+  return <MainApp />
 }
 
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 
-export default function App() {
+function MainApp() {
   const [matches, setMatches] = useState(loadMatches)
   const [dismissed, setDismissed] = useState(loadDismissed)
   const [suggestions, setSuggestions] = useState([])
-  const [fetchState, setFetchState] = useState('idle') // idle | loading | done | error
+  const [fetchState, setFetchState] = useState('idle')
   const [fetchError, setFetchError] = useState('')
   const [lastFetch, setLastFetchState] = useState(getLastFetch)
-  const [tab, setTab] = useState('leaderboard') // leaderboard | matches
-  const [addModal, setAddModal] = useState(null) // null | { prefill }
-  const [editModal, setEditModal] = useState(null) // null | match object
+  const [tab, setTab] = useState('leaderboard')
+  const [addModal, setAddModal] = useState(null)
+  const [editModal, setEditModal] = useState(null)
+  const [copyState, setCopyState] = useState('idle') // idle | copied | toolong
 
-  // Persist
   useEffect(() => { saveMatches(matches) }, [matches])
   useEffect(() => { saveDismissed(dismissed) }, [dismissed])
 
   const leaderboard = buildLeaderboard(matches)
 
-  // ── Auto-fetch on load ───────────────────────────────────────────────────
   useEffect(() => {
-    const elapsed = Date.now() - getLastFetch()
-    if (elapsed > FETCH_THROTTLE_MS) {
-      fetchSuggestions()
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (Date.now() - getLastFetch() > FETCH_THROTTLE_MS) fetchSuggestions()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const fetchSuggestions = useCallback(async () => {
@@ -577,16 +629,11 @@ export default function App() {
     setFetchError('')
     try {
       const res = await fetch('/api/results')
-      if (!res.ok) {
-        const text = await res.text()
-        throw new Error(text || `HTTP ${res.status}`)
-      }
+      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`)
       const data = await res.json()
       const now = Date.now()
       setLastFetch(now)
       setLastFetchState(now)
-
-      // Filter out already-confirmed matches and dismissed suggestions
       const pending = (data.matches || []).filter(m => {
         const fp = fingerprint(m)
         return !dismissed.has(fp) && !matches.some(ex => fingerprint(ex) === fp)
@@ -600,7 +647,7 @@ export default function App() {
   }, [dismissed, matches])
 
   const acceptSuggestion = (sug) => {
-    const match = {
+    setMatches(prev => [...prev, {
       id: crypto.randomUUID(),
       pid: sug.pid,
       opponent: sug.opponent,
@@ -609,24 +656,17 @@ export default function App() {
       stage: sug.stage,
       starScored: sug.starScored || false,
       date: sug.date || new Date().toISOString().slice(0, 10),
-    }
-    setMatches(prev => [...prev, match])
+    }])
     setSuggestions(prev => prev.filter(s => fingerprint(s) !== fingerprint(sug)))
   }
 
   const dismissSuggestion = (sug) => {
     const fp = fingerprint(sug)
-    setDismissed(prev => {
-      const next = new Set(prev)
-      next.add(fp)
-      return next
-    })
+    setDismissed(prev => { const n = new Set(prev); n.add(fp); return n })
     setSuggestions(prev => prev.filter(s => fingerprint(s) !== fp))
   }
 
-  const deleteMatch = (id) => {
-    setMatches(prev => prev.filter(m => m.id !== id))
-  }
+  const deleteMatch = (id) => setMatches(prev => prev.filter(m => m.id !== id))
 
   const saveMatch = (matchData) => {
     if (matchData.id) {
@@ -638,8 +678,28 @@ export default function App() {
     setEditModal(null)
   }
 
+  const shareStandings = async () => {
+    const url = buildShareURL(matches)
+    if (url.length > 2000) {
+      setCopyState('toolong')
+      setTimeout(() => setCopyState('idle'), 3000)
+      return
+    }
+    await copyToClipboard(url)
+    setCopyState('copied')
+    setTimeout(() => setCopyState('idle'), 2000)
+  }
+
+  const shareLabel =
+    copyState === 'copied' ? '✓ Link copied!' :
+    copyState === 'toolong' ? '⚠ URL too long' :
+    '↗ Share standings'
+  const shareVariant =
+    copyState === 'copied' ? 'share-done' :
+    copyState === 'toolong' ? 'share-warn' :
+    'share'
+
   const secondsSinceLastFetch = Math.floor((Date.now() - lastFetch) / 1000)
-  const canFetch = fetchState !== 'loading'
 
   return (
     <div style={css.app}>
@@ -649,7 +709,6 @@ export default function App() {
       </header>
 
       <div style={css.container}>
-        {/* Suggestions */}
         {suggestions.length > 0 && (
           <div style={css.section}>
             <div style={css.sectionLabel}>New Results — Confirm or Dismiss</div>
@@ -664,21 +723,20 @@ export default function App() {
           </div>
         )}
 
-        {/* Fetch controls */}
-        <div style={{ ...css.section }}>
+        <div style={css.section}>
           <div style={css.fetchRow}>
             <button
               style={css.btn('primary')}
               onClick={fetchSuggestions}
-              disabled={!canFetch}
+              disabled={fetchState === 'loading'}
             >
               {fetchState === 'loading' ? '⏳ Fetching…' : '⚡ Fetch Latest Results'}
             </button>
-            <button
-              style={css.btn('ghost')}
-              onClick={() => setAddModal({})}
-            >
+            <button style={css.btn('ghost')} onClick={() => setAddModal({})}>
               + Add Match
+            </button>
+            <button style={css.btn(shareVariant)} onClick={shareStandings}>
+              {shareLabel}
             </button>
             {lastFetch > 0 && (
               <span style={css.fetchStatus}>
@@ -690,13 +748,10 @@ export default function App() {
             <div style={css.errorBox}>Error: {fetchError}</div>
           )}
           {fetchState === 'done' && suggestions.length === 0 && (
-            <div style={{ ...css.fetchStatus, marginTop: '8px' }}>
-              No new results found.
-            </div>
+            <div style={{ ...css.fetchStatus, marginTop: '8px' }}>No new results found.</div>
           )}
         </div>
 
-        {/* Tabs */}
         <div style={{ ...css.section, marginTop: '24px' }}>
           <div style={css.tabRow}>
             <button style={css.tab(tab === 'leaderboard')} onClick={() => setTab('leaderboard')}>
@@ -707,9 +762,7 @@ export default function App() {
             </button>
           </div>
 
-          {tab === 'leaderboard' && (
-            <LeaderboardTab leaderboard={leaderboard} />
-          )}
+          {tab === 'leaderboard' && <LeaderboardTab leaderboard={leaderboard} />}
           {tab === 'matches' && (
             <MatchesTab
               matches={matches}
@@ -721,7 +774,6 @@ export default function App() {
         </div>
       </div>
 
-      {/* Modals */}
       {(addModal !== null || editModal !== null) && (
         <MatchModal
           match={editModal || addModal}
@@ -729,6 +781,82 @@ export default function App() {
           onClose={() => { setAddModal(null); setEditModal(null) }}
         />
       )}
+    </div>
+  )
+}
+
+// ─── READ-ONLY VIEW ──────────────────────────────────────────────────────────
+
+function ReadOnlyView({ encoded }) {
+  if (!encoded) return <ErrorScreen message="Invalid share link — no data payload found." />
+
+  const payload = decodeSharePayload(encoded)
+  if (!payload) return <ErrorScreen message="Could not decode share link — it may be corrupted or truncated." />
+
+  const { ts, matches } = payload
+  const leaderboard = buildLeaderboard(matches)
+
+  const makeOwnCopy = () => {
+    const existing = loadMatches()
+    if (existing.length > 0) {
+      if (!window.confirm('You already have match data saved. Replace it with this shared snapshot?')) return
+    }
+    saveMatches(matches.map(m => ({ ...m, id: crypto.randomUUID() })))
+    window.location.hash = ''
+  }
+
+  const sharedDate = new Date(ts).toLocaleString(undefined, {
+    dateStyle: 'medium', timeStyle: 'short',
+  })
+
+  return (
+    <div style={css.app}>
+      <header style={css.header}>
+        <div style={css.title}>World Cup Sweep</div>
+        <div style={css.subtitle}>FIFA World Cup 2026 · Family Sweepstake</div>
+        <div style={css.readonlyBanner}>
+          👁 Shared snapshot · {sharedDate}
+        </div>
+      </header>
+
+      <div style={css.container}>
+        <div style={css.section}>
+          <div style={css.sectionLabel}>Standings</div>
+          <LeaderboardTab leaderboard={leaderboard} />
+        </div>
+
+        <div style={{ marginTop: '24px' }}>
+          <button style={css.btn('primary')} onClick={makeOwnCopy}>
+            Make my own copy →
+          </button>
+          <div style={{ ...css.fetchStatus, marginTop: '8px' }}>
+            Loads this snapshot into an editable session. Nothing is stored server-side — state lives in the URL.
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ErrorScreen({ message }) {
+  return (
+    <div style={css.app}>
+      <header style={css.header}>
+        <div style={css.title}>World Cup Sweep</div>
+        <div style={css.subtitle}>FIFA World Cup 2026 · Family Sweepstake</div>
+      </header>
+      <div style={css.container}>
+        <div style={{ ...css.errorBox, marginTop: '32px' }}>{message}</div>
+        <div style={{ marginTop: '16px' }}>
+          <a
+            href="#"
+            style={{ ...css.btn('ghost'), textDecoration: 'none' }}
+            onClick={(e) => { e.preventDefault(); window.location.hash = '' }}
+          >
+            ← Go to app
+          </a>
+        </div>
+      </div>
     </div>
   )
 }
@@ -795,7 +923,6 @@ function MatchesTab({ matches, onDelete, onEdit, onAdd }) {
     )
   }
 
-  // Group by player
   const byPlayer = PLAYERS.map(p => ({
     player: p,
     matches: matches.filter(m => m.pid === p.id).sort((a, b) => b.date?.localeCompare(a.date || '') || 0),
@@ -842,39 +969,19 @@ function MatchRow({ match, player, onDelete, onEdit }) {
         textAlign: 'center',
         flexShrink: 0,
       }}>{result}</div>
-      <div style={{
-        ...css.matchScore,
-        color: player.accent,
-      }}>{match.gf}–{match.ga}</div>
+      <div style={{ ...css.matchScore, color: player.accent }}>{match.gf}–{match.ga}</div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: '13px', color: '#c0cce0' }}>
           vs {match.opponent}
-          {match.starScored && (
-            <span style={{ color: '#facc15', marginLeft: '6px', fontSize: '12px' }}>★</span>
-          )}
+          {match.starScored && <span style={{ color: '#facc15', marginLeft: '6px', fontSize: '12px' }}>★</span>}
         </div>
         <div style={css.matchMeta}>{stageLabel(match.stage)} · {match.date}</div>
       </div>
-      <div style={{
-        fontFamily: 'Spline Sans Mono, monospace',
-        fontSize: '11px',
-        color: '#4a6080',
-        flexShrink: 0,
-      }}>{fmtPoints(pts)}</div>
-      <button
-        style={css.btn('ghost')}
-        onClick={() => onEdit(match)}
-        title="Edit"
-      >
-        ✏️
-      </button>
-      <button
-        style={css.deleteBtn}
-        onClick={() => onDelete(match.id)}
-        title="Delete"
-      >
-        ×
-      </button>
+      <div style={{ fontFamily: 'Spline Sans Mono, monospace', fontSize: '11px', color: '#4a6080', flexShrink: 0 }}>
+        {fmtPoints(pts)}
+      </div>
+      <button style={css.btn('ghost')} onClick={() => onEdit(match)} title="Edit">✏️</button>
+      <button style={css.deleteBtn} onClick={() => onDelete(match.id)} title="Delete">×</button>
     </div>
   )
 }
@@ -923,41 +1030,28 @@ const EMPTY_FORM = {
 
 function MatchModal({ match, onSave, onClose }) {
   const [form, setForm] = useState({ ...EMPTY_FORM, ...match })
-
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+  const player = playerByPid(form.pid)
 
   const handleSubmit = (e) => {
     e.preventDefault()
     if (!form.opponent.trim()) return
-    onSave({
-      ...form,
-      gf: parseInt(form.gf, 10) || 0,
-      ga: parseInt(form.ga, 10) || 0,
-    })
+    onSave({ ...form, gf: parseInt(form.gf, 10) || 0, ga: parseInt(form.ga, 10) || 0 })
   }
-
-  const player = playerByPid(form.pid)
 
   return (
     <div style={css.modalOverlay} onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <div style={css.modal}>
-        <div style={css.modalTitle}>
-          {form.id ? 'Edit Match' : 'Add Match'}
-        </div>
+        <div style={css.modalTitle}>{form.id ? 'Edit Match' : 'Add Match'}</div>
         <form onSubmit={handleSubmit}>
           <div style={css.formGroup}>
             <label style={css.label}>Player</label>
-            <select
-              style={css.select}
-              value={form.pid}
-              onChange={e => set('pid', e.target.value)}
-            >
+            <select style={css.select} value={form.pid} onChange={e => set('pid', e.target.value)}>
               {PLAYERS.map(p => (
                 <option key={p.id} value={p.id}>{p.flag} {p.name} · {p.team}</option>
               ))}
             </select>
           </div>
-
           <div style={css.formGroup}>
             <label style={css.label}>Opponent</label>
             <input
@@ -969,83 +1063,40 @@ function MatchModal({ match, onSave, onClose }) {
               required
             />
           </div>
-
           <div style={{ display: 'flex', gap: '12px' }}>
             <div style={{ ...css.formGroup, flex: 1 }}>
               <label style={css.label}>{player?.team} Goals</label>
-              <input
-                style={css.input}
-                type="number"
-                min="0"
-                max="20"
-                value={form.gf}
-                onChange={e => set('gf', e.target.value)}
-              />
+              <input style={css.input} type="number" min="0" max="20" value={form.gf} onChange={e => set('gf', e.target.value)} />
             </div>
             <div style={{ ...css.formGroup, flex: 1 }}>
               <label style={css.label}>Opponent Goals</label>
-              <input
-                style={css.input}
-                type="number"
-                min="0"
-                max="20"
-                value={form.ga}
-                onChange={e => set('ga', e.target.value)}
-              />
+              <input style={css.input} type="number" min="0" max="20" value={form.ga} onChange={e => set('ga', e.target.value)} />
             </div>
           </div>
-
           <div style={css.formGroup}>
             <label style={css.label}>Stage</label>
-            <select
-              style={css.select}
-              value={form.stage}
-              onChange={e => set('stage', e.target.value)}
-            >
+            <select style={css.select} value={form.stage} onChange={e => set('stage', e.target.value)}>
               {Object.entries(STAGES).map(([k, v]) => (
                 <option key={k} value={k}>{v.label}</option>
               ))}
             </select>
           </div>
-
           <div style={css.formGroup}>
             <label style={css.label}>Date</label>
-            <input
-              style={css.input}
-              type="date"
-              value={form.date}
-              onChange={e => set('date', e.target.value)}
-            />
+            <input style={css.input} type="date" value={form.date} onChange={e => set('date', e.target.value)} />
           </div>
-
           <div style={css.formGroup}>
             <label style={css.checkbox}>
-              <input
-                type="checkbox"
-                checked={form.starScored}
-                onChange={e => set('starScored', e.target.checked)}
-              />
+              <input type="checkbox" checked={form.starScored} onChange={e => set('starScored', e.target.checked)} />
               <span>★ Star player scored (+3 pts) — {player?.starPlayer}</span>
             </label>
           </div>
-
           <div style={css.formActions}>
             <button type="button" style={css.btn('ghost')} onClick={onClose}>Cancel</button>
-            <button type="submit" style={css.btn('primary')}>
-              {form.id ? 'Save Changes' : 'Add Match'}
-            </button>
+            <button type="submit" style={css.btn('primary')}>{form.id ? 'Save Changes' : 'Add Match'}</button>
           </div>
         </form>
       </div>
     </div>
   )
-}
-
-// ─── UTILITIES ────────────────────────────────────────────────────────────────
-
-function formatAge(seconds) {
-  if (seconds < 60) return `${seconds}s`
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`
-  return `${Math.floor(seconds / 86400)}d`
 }
