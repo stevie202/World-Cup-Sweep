@@ -3,20 +3,6 @@
 
 const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages'
 
-const TEAMS = {
-  james: 'Argentina',
-  abi: 'Spain',
-  anne: 'Netherlands',
-  stevie: 'Portugal',
-}
-
-const STAR_PLAYERS = {
-  james: 'Lautaro Martínez',
-  abi: 'Lamine Yamal',
-  anne: 'Virgil van Dijk',
-  stevie: 'Bruno Fernandes',
-}
-
 const SYSTEM_PROMPT = `You are a FIFA World Cup 2026 results tracker. The user will ask you for the latest match results for four specific national teams in the 2026 FIFA World Cup. You MUST use web search to find up-to-date results.
 
 Return your answer as a single valid JSON object with this exact shape:
@@ -63,17 +49,15 @@ const USER_PROMPT = `Search for the latest 2026 FIFA World Cup match results for
 
 Find all completed matches for each team. Return the JSON.`
 
-export default async function handler(req, res) {
-  if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' })
-  }
+// Run the agentic loop until the model returns end_turn.
+// web_search_20250305 is a server-side tool: the model emits tool_use blocks,
+// we loop back with empty tool_result acknowledgements, and Anthropic executes
+// the search on its end. We keep going until stop_reason === "end_turn".
+async function runLoop(apiKey) {
+  const messages = [{ role: 'user', content: USER_PROMPT }]
+  const MAX_TURNS = 10
 
-  const apiKey = process.env.ANTHROPIC_API_KEY
-  if (!apiKey) {
-    return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured' })
-  }
-
-  try {
+  for (let turn = 0; turn < MAX_TURNS; turn++) {
     const response = await fetch(ANTHROPIC_API, {
       method: 'POST',
       headers: {
@@ -86,47 +70,82 @@ export default async function handler(req, res) {
         model: 'claude-opus-4-8',
         max_tokens: 4096,
         system: SYSTEM_PROMPT,
-        tools: [
-          {
-            type: 'web_search_20250305',
-            name: 'web_search',
-          },
-        ],
-        messages: [
-          { role: 'user', content: USER_PROMPT },
-        ],
+        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+        messages,
       }),
     })
 
     if (!response.ok) {
       const errText = await response.text()
-      return res.status(502).json({ error: `Anthropic API error: ${response.status}`, detail: errText })
+      throw new Error(`Anthropic API error ${response.status}: ${errText}`)
     }
 
     const data = await response.json()
+    const content = data.content || []
 
-    // Extract text content from the response
-    const textBlock = data.content?.find(b => b.type === 'text')
-    if (!textBlock) {
+    if (data.stop_reason === 'end_turn') {
+      // Take the last text block — earlier ones may be preamble ("I'll search…")
+      const textBlocks = content.filter(b => b.type === 'text')
+      return textBlocks.at(-1)?.text ?? null
+    }
+
+    if (data.stop_reason === 'tool_use') {
+      messages.push({ role: 'assistant', content })
+
+      const toolResults = content
+        .filter(b => b.type === 'tool_use')
+        .map(tu => ({
+          type: 'tool_result',
+          tool_use_id: tu.id,
+          // Server-side tool: Anthropic executes the search; we just acknowledge.
+          content: '',
+        }))
+
+      if (toolResults.length > 0) {
+        messages.push({ role: 'user', content: toolResults })
+      }
+      continue
+    }
+
+    // max_tokens or unexpected stop — return whatever text we have
+    const textBlocks = content.filter(b => b.type === 'text')
+    return textBlocks.at(-1)?.text ?? null
+  }
+
+  throw new Error('Web search loop exceeded max turns without a final response')
+}
+
+export default async function handler(req, res) {
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' })
+  }
+
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (!apiKey) {
+    return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured' })
+  }
+
+  try {
+    const rawText = await runLoop(apiKey)
+
+    if (!rawText) {
       return res.status(502).json({ error: 'No text response from model' })
     }
 
-    // Parse JSON from response text
+    // Strip markdown code fences if present
+    const cleaned = rawText.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '')
+
     let parsed
     try {
-      // Strip any markdown code fences if present
-      const raw = textBlock.text.trim().replace(/^```json\s*/i, '').replace(/```\s*$/, '')
-      parsed = JSON.parse(raw)
-    } catch (e) {
-      return res.status(502).json({ error: 'Failed to parse model response as JSON', raw: textBlock.text })
+      parsed = JSON.parse(cleaned)
+    } catch {
+      return res.status(502).json({ error: 'Failed to parse model response as JSON', raw: rawText })
     }
 
-    // Validate structure
     if (!Array.isArray(parsed.matches)) {
-      return res.status(502).json({ error: 'Invalid response shape', raw: textBlock.text })
+      return res.status(502).json({ error: 'Invalid response shape', raw: rawText })
     }
 
-    // Sanitise and validate each match
     const validPids = new Set(['james', 'abi', 'anne', 'stevie'])
     const validStages = new Set(['group', 'r16', 'qf', 'sf', 'final', 'champion'])
 
@@ -134,8 +153,7 @@ export default async function handler(req, res) {
       .filter(m =>
         validPids.has(m.pid) &&
         typeof m.opponent === 'string' &&
-        Number.isInteger(m.gf) &&
-        Number.isInteger(m.ga) &&
+        Number.isInteger(m.gf) && Number.isInteger(m.ga) &&
         m.gf >= 0 && m.ga >= 0 &&
         validStages.has(m.stage)
       )
