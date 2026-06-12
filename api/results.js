@@ -1,58 +1,56 @@
 // Vercel serverless function — proxies Anthropic API with web search
-// to fetch 2026 FIFA World Cup results for the four sweep teams.
+// to fetch 2026 FIFA World Cup results, next fixtures, and a daily headline.
 
 const ANTHROPIC_API = 'https://api.anthropic.com/v1/messages'
 
-const SYSTEM_PROMPT = `You are a FIFA World Cup 2026 results tracker. The user will ask you for the latest match results for four specific national teams in the 2026 FIFA World Cup. You MUST use web search to find up-to-date results.
+const SYSTEM_PROMPT = `You are a FIFA World Cup 2026 tracker. Use web search to find current information. Return a single valid JSON object with this exact shape:
 
-Return your answer as a single valid JSON object with this exact shape:
 {
   "matches": [
     {
       "pid": "james" | "abi" | "anne" | "stevie",
-      "opponent": "<opposing team name>",
+      "opponent": "<opposing team full name>",
       "gf": <goals scored by tracked team, integer>,
       "ga": <goals conceded, integer>,
       "stage": "group" | "r16" | "qf" | "sf" | "final" | "champion",
-      "starScored": <true if the star player scored in this match, false otherwise>,
-      "date": "<ISO date YYYY-MM-DD>"
+      "starScored": <true if the star player scored, false otherwise>,
+      "date": "<YYYY-MM-DD>"
     }
-  ]
+  ],
+  "nextGames": {
+    "james": { "opponent": "<next opponent full name>", "date": "<YYYY-MM-DD>", "kickoff": "<HH:MM in BST>" },
+    "abi":   { "opponent": "<next opponent full name>", "date": "<YYYY-MM-DD>", "kickoff": "<HH:MM in BST>" },
+    "anne":  { "opponent": "<next opponent full name>", "date": "<YYYY-MM-DD>", "kickoff": "<HH:MM in BST>" },
+    "stevie":{ "opponent": "<next opponent full name>", "date": "<YYYY-MM-DD>", "kickoff": "<HH:MM in BST>" }
+  },
+  "headline": "<single top World Cup 2026 news story from today, 1-2 sentences>",
+  "headlineSource": "<news outlet name, e.g. BBC Sport>"
 }
 
 pid mapping:
-- "james" = Argentina (star: Lautaro Martínez)
-- "abi" = Spain (star: Lamine Yamal)
-- "anne" = Netherlands (star: Virgil van Dijk)
-- "stevie" = Portugal (star: Bruno Fernandes)
+- "james"  = Argentina  (star: Lautaro Martínez)
+- "abi"    = Spain      (star: Lamine Yamal)
+- "anne"   = Netherlands (star: Virgil van Dijk)
+- "stevie" = Portugal   (star: Bruno Fernandes)
 
 stage mapping:
-- "group" = group stage
-- "r16" = round of 16
-- "qf" = quarter-final
-- "sf" = semi-final
-- "final" = final (runner-up)
-- "champion" = champion (only for the winning team's final match)
+- "group" = group stage  |  "r16" = round of 16  |  "qf" = quarter-final
+- "sf" = semi-final  |  "final" = final (runner-up)  |  "champion" = champion
 
 Rules:
-- Only include matches that have actually been played (final score known)
-- Include ALL matches played by these teams in the tournament so far
-- If a team is eliminated, include the elimination match
-- Return an empty matches array if the tournament has not started yet
-- Return ONLY the JSON object, no markdown, no explanation`
+- matches: only completed matches with a known final score. Include ALL played so far.
+- nextGames: the next SCHEDULED (not yet played) match for each team still in the tournament. Omit a team if they are eliminated or if their next fixture is not yet confirmed. Kickoff must be converted to BST (UTC+1).
+- headline: the single most interesting World Cup news story from today or the last 24 hours.
+- Return ONLY the JSON — no markdown, no explanation.`
 
-const USER_PROMPT = `Search for the latest 2026 FIFA World Cup match results for these four teams:
-1. Argentina (pid: james, star player: Lautaro Martínez)
-2. Spain (pid: abi, star player: Lamine Yamal)
-3. Netherlands (pid: anne, star player: Virgil van Dijk)
-4. Portugal (pid: stevie, star player: Bruno Fernandes)
+const USER_PROMPT = `Search for the latest 2026 FIFA World Cup information for:
+1. Argentina (pid: james, star: Lautaro Martínez)
+2. Spain (pid: abi, star: Lamine Yamal)
+3. Netherlands (pid: anne, star: Virgil van Dijk)
+4. Portugal (pid: stevie, star: Bruno Fernandes)
 
-Find all completed matches for each team. Return the JSON.`
+Find: (a) all completed match results, (b) each team's next scheduled fixture with kickoff in BST, (c) today's top World Cup headline. Return the JSON.`
 
-// Run the agentic loop until the model returns end_turn.
-// web_search_20250305 is a server-side tool: the model emits tool_use blocks,
-// we loop back with empty tool_result acknowledgements, and Anthropic executes
-// the search on its end. We keep going until stop_reason === "end_turn".
 async function runLoop(apiKey) {
   const messages = [{ role: 'user', content: USER_PROMPT }]
   const MAX_TURNS = 10
@@ -84,30 +82,19 @@ async function runLoop(apiKey) {
     const content = data.content || []
 
     if (data.stop_reason === 'end_turn') {
-      // Take the last text block — earlier ones may be preamble ("I'll search…")
       const textBlocks = content.filter(b => b.type === 'text')
       return textBlocks.at(-1)?.text ?? null
     }
 
     if (data.stop_reason === 'tool_use') {
       messages.push({ role: 'assistant', content })
-
       const toolResults = content
         .filter(b => b.type === 'tool_use')
-        .map(tu => ({
-          type: 'tool_result',
-          tool_use_id: tu.id,
-          // Server-side tool: Anthropic executes the search; we just acknowledge.
-          content: '',
-        }))
-
-      if (toolResults.length > 0) {
-        messages.push({ role: 'user', content: toolResults })
-      }
+        .map(tu => ({ type: 'tool_result', tool_use_id: tu.id, content: '' }))
+      if (toolResults.length > 0) messages.push({ role: 'user', content: toolResults })
       continue
     }
 
-    // max_tokens or unexpected stop — return whatever text we have
     const textBlocks = content.filter(b => b.type === 'text')
     return textBlocks.at(-1)?.text ?? null
   }
@@ -116,24 +103,15 @@ async function runLoop(apiKey) {
 }
 
 export default async function handler(req, res) {
-  if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' })
-  }
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' })
 
   const apiKey = process.env.ANTHROPIC_API_KEY
-  if (!apiKey) {
-    return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured' })
-  }
+  if (!apiKey) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured' })
 
   try {
     const rawText = await runLoop(apiKey)
+    if (!rawText) return res.status(502).json({ error: 'No text response from model' })
 
-    if (!rawText) {
-      return res.status(502).json({ error: 'No text response from model' })
-    }
-
-    // Strip markdown code fences, then extract the JSON object even if the
-    // model prepended an explanation paragraph before the JSON.
     const stripped = rawText.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '')
     const jsonMatch = stripped.match(/\{[\s\S]*\}/)
     const jsonStr = jsonMatch ? jsonMatch[0] : stripped
@@ -170,7 +148,25 @@ export default async function handler(req, res) {
         date: m.date || '',
       }))
 
-    return res.status(200).json({ matches })
+    // Pass through nextGames, validating each entry
+    const nextGames = {}
+    if (parsed.nextGames && typeof parsed.nextGames === 'object') {
+      for (const pid of validPids) {
+        const ng = parsed.nextGames[pid]
+        if (ng && typeof ng.opponent === 'string' && ng.opponent.trim()) {
+          nextGames[pid] = {
+            opponent: ng.opponent.trim(),
+            date: ng.date || '',
+            kickoff: ng.kickoff || '',
+          }
+        }
+      }
+    }
+
+    const headline = typeof parsed.headline === 'string' ? parsed.headline.trim() : ''
+    const headlineSource = typeof parsed.headlineSource === 'string' ? parsed.headlineSource.trim() : ''
+
+    return res.status(200).json({ matches, nextGames, headline, headlineSource })
   } catch (e) {
     return res.status(500).json({ error: e.message })
   }

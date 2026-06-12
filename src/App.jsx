@@ -227,6 +227,8 @@ function FlagImg({ country, size = 18, style: extraStyle }) {
 const LS_MATCHES = 'wcs_matches'
 const LS_DISMISSED = 'wcs_dismissed'
 const LS_LAST_FETCH = 'wcs_last_fetch'
+const LS_NEWS = 'wcs_news'
+const LS_NEXT_GAMES = 'wcs_next_games'
 const FETCH_THROTTLE_MS = 20 * 60 * 60 * 1000
 
 function loadMatches() {
@@ -243,6 +245,16 @@ function getLastFetch() {
   try { return parseInt(localStorage.getItem(LS_LAST_FETCH) || '0', 10) } catch { return 0 }
 }
 function setLastFetch(ts) { localStorage.setItem(LS_LAST_FETCH, String(ts)) }
+
+function loadNews() {
+  try { return JSON.parse(localStorage.getItem(LS_NEWS)) || null } catch { return null }
+}
+function saveNews(n) { localStorage.setItem(LS_NEWS, JSON.stringify(n)) }
+
+function loadNextGames() {
+  try { return JSON.parse(localStorage.getItem(LS_NEXT_GAMES)) || {} } catch { return {} }
+}
+function saveNextGames(g) { localStorage.setItem(LS_NEXT_GAMES, JSON.stringify(g)) }
 
 // ─── SHARING ─────────────────────────────────────────────────────────────────
 
@@ -741,6 +753,59 @@ function formatAge(seconds) {
   return `${Math.floor(seconds / 86400)}d`
 }
 
+function fmtNextGame(ng) {
+  if (!ng) return ''
+  const { date, kickoff } = ng
+  if (!date) return kickoff ? `${kickoff} BST` : ''
+  try {
+    const d = new Date(date + 'T12:00:00Z')
+    const dateStr = d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
+    return kickoff ? `${dateStr} · ${kickoff} BST` : dateStr
+  } catch {
+    return `${date}${kickoff ? ' ' + kickoff : ''}`
+  }
+}
+
+// ─── HEADLINE BANNER ─────────────────────────────────────────────────────────
+
+function HeadlineBanner({ headline }) {
+  if (!headline?.text) return null
+  return (
+    <div style={{
+      background: '#0c1525',
+      border: '1px solid #1e2d4a',
+      borderLeft: '3px solid #3b6fd4',
+      borderRadius: '8px',
+      padding: '12px 14px',
+      marginTop: '12px',
+    }}>
+      <div style={{
+        fontFamily: 'Spline Sans Mono, monospace',
+        fontSize: '9px',
+        letterSpacing: '0.2em',
+        color: '#2a4a7a',
+        textTransform: 'uppercase',
+        marginBottom: '6px',
+      }}>⚽ World Cup Today</div>
+      <div style={{
+        fontFamily: 'Archivo, sans-serif',
+        fontWeight: 600,
+        fontSize: '13px',
+        color: '#b8cce4',
+        lineHeight: 1.5,
+      }}>{headline.text}</div>
+      {headline.source && (
+        <div style={{
+          fontFamily: 'Spline Sans Mono, monospace',
+          fontSize: '10px',
+          color: '#2a4060',
+          marginTop: '5px',
+        }}>{headline.source}</div>
+      )}
+    </div>
+  )
+}
+
 // ─── ROOT — hash router ───────────────────────────────────────────────────────
 
 export default function App() {
@@ -758,6 +823,8 @@ function MainApp() {
   const [fetchState, setFetchState] = useState('idle')
   const [fetchError, setFetchError] = useState('')
   const [lastFetch, setLastFetchState] = useState(getLastFetch)
+  const [headline, setHeadline] = useState(loadNews)
+  const [nextGames, setNextGames] = useState(loadNextGames)
   const [tab, setTab] = useState('leaderboard')
   const [addModal, setAddModal] = useState(null)
   const [editModal, setEditModal] = useState(null)
@@ -787,6 +854,17 @@ function MainApp() {
       const now = Date.now()
       setLastFetch(now)
       setLastFetchState(now)
+
+      if (data.nextGames && Object.keys(data.nextGames).length > 0) {
+        setNextGames(data.nextGames)
+        saveNextGames(data.nextGames)
+      }
+      if (data.headline) {
+        const news = { text: data.headline, source: data.headlineSource || '' }
+        setHeadline(news)
+        saveNews(news)
+      }
+
       const pending = (data.matches || []).filter(m => {
         const fp = fingerprint(m)
         return !dismissed.has(fp) && !matches.some(ex => fingerprint(ex) === fp)
@@ -903,6 +981,7 @@ function MainApp() {
           {fetchState === 'done' && suggestions.length === 0 && (
             <div style={{ ...css.fetchStatus, marginTop: '8px' }}>No new results found.</div>
           )}
+          <HeadlineBanner headline={headline} />
         </div>
 
         <div style={{ ...css.section, marginTop: '24px' }}>
@@ -915,7 +994,7 @@ function MainApp() {
             </button>
           </div>
 
-          {tab === 'leaderboard' && <LeaderboardTab leaderboard={leaderboard} />}
+          {tab === 'leaderboard' && <LeaderboardTab leaderboard={leaderboard} nextGames={nextGames} />}
           {tab === 'matches' && (
             <MatchesTab
               matches={matches}
@@ -1016,17 +1095,17 @@ function ErrorScreen({ message }) {
 
 // ─── LEADERBOARD TAB ─────────────────────────────────────────────────────────
 
-function LeaderboardTab({ leaderboard }) {
+function LeaderboardTab({ leaderboard, nextGames = {} }) {
   return (
     <div>
       {leaderboard.map((p, i) => (
-        <LeaderboardRow key={p.id} player={p} rank={i} />
+        <LeaderboardRow key={p.id} player={p} rank={i} nextGame={nextGames[p.id]} />
       ))}
     </div>
   )
 }
 
-function LeaderboardRow({ player, rank }) {
+function LeaderboardRow({ player, rank, nextGame }) {
   const { accent, name, team, totalPts, gf, ga, currentStage, matchCount } = player
   const medal = rank === 0 ? '🥇' : rank === 1 ? '🥈' : rank === 2 ? '🥉' : null
   return (
@@ -1041,7 +1120,22 @@ function LeaderboardRow({ player, rank }) {
           {name}
         </div>
         <div style={css.playerTeam}>{team}</div>
-        <div style={css.stageBadge(accent)}>{stageLabel(currentStage)}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginTop: '4px', flexWrap: 'wrap' }}>
+          <div style={css.stageBadge(accent)}>{stageLabel(currentStage)}</div>
+          {nextGame && (
+            <div style={{
+              fontFamily: 'Spline Sans Mono, monospace',
+              fontSize: '10px',
+              color: '#4a6080',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+            }}>
+              <FlagImg country={nextGame.opponent} size={12} />
+              {fmtNextGame(nextGame)}
+            </div>
+          )}
+        </div>
       </div>
       <div style={css.statsRow}>
         <div style={css.statBlock}>
