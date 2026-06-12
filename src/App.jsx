@@ -120,6 +120,92 @@ function fingerprint(m) {
   return `${m.pid}|${m.opponent}|${m.gf}-${m.ga}`
 }
 
+// ─── COUNTRY FLAGS ────────────────────────────────────────────────────────────
+
+const COUNTRY_FLAGS = {
+  // South America
+  'Argentina': '🇦🇷', 'ARG': '🇦🇷',
+  'Brazil': '🇧🇷', 'BRA': '🇧🇷',
+  'Uruguay': '🇺🇾', 'URU': '🇺🇾',
+  'Colombia': '🇨🇴', 'COL': '🇨🇴',
+  'Ecuador': '🇪🇨', 'ECU': '🇪🇨',
+  'Chile': '🇨🇱', 'CHI': '🇨🇱',
+  'Peru': '🇵🇪', 'PER': '🇵🇪',
+  'Paraguay': '🇵🇾', 'PAR': '🇵🇾',
+  'Bolivia': '🇧🇴', 'BOL': '🇧🇴',
+  'Venezuela': '🇻🇪', 'VEN': '🇻🇪',
+  // North & Central America
+  'Mexico': '🇲🇽', 'MEX': '🇲🇽',
+  'USA': '🇺🇸', 'United States': '🇺🇸', 'US': '🇺🇸',
+  'Canada': '🇨🇦', 'CAN': '🇨🇦',
+  'Costa Rica': '🇨🇷', 'CRC': '🇨🇷',
+  'Honduras': '🇭🇳', 'HON': '🇭🇳',
+  'Panama': '🇵🇦', 'PAN': '🇵🇦',
+  'Jamaica': '🇯🇲', 'JAM': '🇯🇲',
+  // Europe
+  'Spain': '🇪🇸', 'ESP': '🇪🇸',
+  'France': '🇫🇷', 'FRA': '🇫🇷',
+  'Germany': '🇩🇪', 'GER': '🇩🇪',
+  'England': '🏴󠁧󠁢󠁥󠁮󠁧󠁿', 'ENG': '🏴󠁧󠁢󠁥󠁮󠁧󠁿',
+  'Portugal': '🇵🇹', 'POR': '🇵🇹',
+  'Netherlands': '🇳🇱', 'NED': '🇳🇱', 'Holland': '🇳🇱',
+  'Belgium': '🇧🇪', 'BEL': '🇧🇪',
+  'Italy': '🇮🇹', 'ITA': '🇮🇹',
+  'Croatia': '🇭🇷', 'CRO': '🇭🇷',
+  'Switzerland': '🇨🇭', 'SUI': '🇨🇭',
+  'Denmark': '🇩🇰', 'DEN': '🇩🇰',
+  'Austria': '🇦🇹', 'AUT': '🇦🇹',
+  'Poland': '🇵🇱', 'POL': '🇵🇱',
+  'Czech Republic': '🇨🇿', 'CZE': '🇨🇿',
+  'Serbia': '🇷🇸', 'SRB': '🇷🇸',
+  'Ukraine': '🇺🇦', 'UKR': '🇺🇦',
+  'Hungary': '🇭🇺', 'HUN': '🇭🇺',
+  'Scotland': '🏴󠁧󠁢󠁳󠁣󠁴󠁿', 'SCO': '🏴󠁧󠁢󠁳󠁣󠁴󠁿',
+  'Turkey': '🇹🇷', 'TUR': '🇹🇷', 'Türkiye': '🇹🇷',
+  'Romania': '🇷🇴', 'ROU': '🇷🇴',
+  'Slovakia': '🇸🇰', 'SVK': '🇸🇰',
+  'Slovenia': '🇸🇮', 'SVN': '🇸🇮',
+  'Albania': '🇦🇱', 'ALB': '🇦🇱',
+  'Georgia': '🇬🇪', 'GEO': '🇬🇪',
+  'Greece': '🇬🇷', 'GRE': '🇬🇷',
+  'Wales': '🏴󠁧󠁢󠁷󠁬󠁳󠁿', 'WAL': '🏴󠁧󠁢󠁷󠁬󠁳󠁿',
+  'Norway': '🇳🇴', 'NOR': '🇳🇴',
+  'Sweden': '🇸🇪', 'SWE': '🇸🇪',
+  // Africa
+  'Morocco': '🇲🇦', 'MAR': '🇲🇦',
+  'Senegal': '🇸🇳', 'SEN': '🇸🇳',
+  'Egypt': '🇪🇬', 'EGY': '🇪🇬',
+  'Nigeria': '🇳🇬', 'NGA': '🇳🇬',
+  "Côte d'Ivoire": '🇨🇮', 'Ivory Coast': '🇨🇮', 'CIV': '🇨🇮',
+  'Ghana': '🇬🇭', 'GHA': '🇬🇭',
+  'Cameroon': '🇨🇲', 'CMR': '🇨🇲',
+  'South Africa': '🇿🇦', 'RSA': '🇿🇦',
+  'Tunisia': '🇹🇳', 'TUN': '🇹🇳',
+  'Algeria': '🇩🇿', 'ALG': '🇩🇿',
+  'Mali': '🇲🇱', 'MLI': '🇲🇱',
+  'DR Congo': '🇨🇩', 'COD': '🇨🇩',
+  // Asia / Oceania
+  'Japan': '🇯🇵', 'JPN': '🇯🇵',
+  'South Korea': '🇰🇷', 'KOR': '🇰🇷',
+  'Iran': '🇮🇷', 'IRN': '🇮🇷',
+  'Saudi Arabia': '🇸🇦', 'KSA': '🇸🇦',
+  'Qatar': '🇶🇦', 'QAT': '🇶🇦',
+  'Australia': '🇦🇺', 'AUS': '🇦🇺',
+  'New Zealand': '🇳🇿', 'NZL': '🇳🇿',
+  'China': '🇨🇳', 'CHN': '🇨🇳',
+  'Indonesia': '🇮🇩', 'IDN': '🇮🇩',
+  'Iraq': '🇮🇶', 'IRQ': '🇮🇶',
+  'Jordan': '🇯🇴', 'JOR': '🇯🇴',
+  'Uzbekistan': '🇺🇿', 'UZB': '🇺🇿',
+  'Bahrain': '🇧🇭', 'BHR': '🇧🇭',
+  'Oman': '🇴🇲', 'OMA': '🇴🇲',
+}
+
+function countryFlag(name) {
+  if (!name) return ''
+  return COUNTRY_FLAGS[name] || COUNTRY_FLAGS[name.toUpperCase()] || ''
+}
+
 // ─── LOCAL STORAGE ───────────────────────────────────────────────────────────
 
 const LS_MATCHES = 'wcs_matches'
@@ -553,16 +639,6 @@ const css = {
     marginBottom: '-1px',
     letterSpacing: '0.01em',
   }),
-  errorBox: {
-    background: '#1f0a0a',
-    border: '1px solid #5a1a1a',
-    borderRadius: '8px',
-    padding: '12px 16px',
-    fontFamily: 'Spline Sans Mono, monospace',
-    fontSize: '12px',
-    color: '#f87171',
-    marginTop: '10px',
-  },
   readonlyBanner: {
     display: 'inline-flex',
     alignItems: 'center',
@@ -584,6 +660,63 @@ const css = {
 function playerByPid(pid) { return PLAYERS.find(p => p.id === pid) }
 function stageLabel(s) { return STAGES[s]?.label || s }
 function fmtPoints(n) { return n === 1 ? '1 pt' : `${n} pts` }
+
+// ─── INFO CARD ────────────────────────────────────────────────────────────────
+
+const INFO_CARD_THEMES = {
+  error:   { bg: '#1a0a0a', border: '#7f1d1d', accent: '#f87171', icon: '⚠' },
+  warning: { bg: '#1a1200', border: '#78350f', accent: '#fbbf24', icon: '⚠' },
+  info:    { bg: '#0a1020', border: '#1e3a6e', accent: '#60a5fa', icon: 'ℹ' },
+  success: { bg: '#071a10', border: '#166534', accent: '#4ade80', icon: '✓' },
+}
+
+function InfoCard({ type = 'error', title, message, style }) {
+  const t = INFO_CARD_THEMES[type] || INFO_CARD_THEMES.error
+  return (
+    <div style={{
+      background: t.bg,
+      border: `1px solid ${t.border}`,
+      borderLeft: `3px solid ${t.accent}`,
+      borderRadius: '10px',
+      padding: '14px 16px',
+      marginTop: '12px',
+      display: 'flex',
+      gap: '12px',
+      alignItems: 'flex-start',
+      ...style,
+    }}>
+      <span style={{
+        fontSize: '17px',
+        lineHeight: 1,
+        flexShrink: 0,
+        marginTop: '1px',
+        color: t.accent,
+      }}>{t.icon}</span>
+      <div style={{ minWidth: 0 }}>
+        {title && (
+          <div style={{
+            fontFamily: 'Archivo, sans-serif',
+            fontWeight: 700,
+            fontSize: '13px',
+            color: t.accent,
+            marginBottom: message ? '4px' : 0,
+            letterSpacing: '0.01em',
+          }}>{title}</div>
+        )}
+        {message && (
+          <div style={{
+            fontFamily: 'Spline Sans Mono, monospace',
+            fontSize: '11px',
+            color: t.accent,
+            opacity: 0.8,
+            lineHeight: 1.6,
+            wordBreak: 'break-word',
+          }}>{message}</div>
+        )}
+      </div>
+    </div>
+  )
+}
 
 function formatAge(seconds) {
   if (seconds < 60) return `${seconds}s`
@@ -745,7 +878,7 @@ function MainApp() {
             )}
           </div>
           {fetchState === 'error' && (
-            <div style={css.errorBox}>Error: {fetchError}</div>
+            <InfoCard type="error" title="Fetch failed" message={fetchError} />
           )}
           {fetchState === 'done' && suggestions.length === 0 && (
             <div style={{ ...css.fetchStatus, marginTop: '8px' }}>No new results found.</div>
@@ -846,7 +979,7 @@ function ErrorScreen({ message }) {
         <div style={css.subtitle}>FIFA World Cup 2026 · Family Sweepstake</div>
       </header>
       <div style={css.container}>
-        <div style={{ ...css.errorBox, marginTop: '32px' }}>{message}</div>
+        <InfoCard type="error" title="Something went wrong" message={message} style={{ marginTop: '32px' }} />
         <div style={{ marginTop: '16px' }}>
           <a
             href="#"
@@ -972,7 +1105,10 @@ function MatchRow({ match, player, onDelete, onEdit }) {
       <div style={{ ...css.matchScore, color: player.accent }}>{match.gf}–{match.ga}</div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: '13px', color: '#c0cce0' }}>
-          vs {match.opponent}
+          {countryFlag(match.opponent) && (
+            <span style={{ marginRight: '5px' }}>{countryFlag(match.opponent)}</span>
+          )}
+          {match.opponent}
           {match.starScored && <span style={{ color: '#facc15', marginLeft: '6px', fontSize: '12px' }}>★</span>}
         </div>
         <div style={css.matchMeta}>{stageLabel(match.stage)} · {match.date}</div>
@@ -1002,7 +1138,12 @@ function SuggestionCard({ sug, onAccept, onDismiss }) {
         <span style={css.sugStage(player.accent)}>{stageLabel(sug.stage)}</span>
       </div>
       <div style={css.sugScore}>{sug.gf} – {sug.ga}</div>
-      <div style={css.sugOpponent}>vs {sug.opponent}</div>
+      <div style={css.sugOpponent}>
+        {countryFlag(sug.opponent) && (
+          <span style={{ marginRight: '5px' }}>{countryFlag(sug.opponent)}</span>
+        )}
+        vs {sug.opponent}
+      </div>
       <div style={css.sugMeta}>
         {result} · +{pts} pts
         {sug.starScored ? ' · ★ star scored' : ''}
