@@ -120,90 +120,106 @@ function fingerprint(m) {
   return `${m.pid}|${m.opponent}|${m.gf}-${m.ga}`
 }
 
-// ─── COUNTRY FLAGS ────────────────────────────────────────────────────────────
+// ─── COUNTRY CODES → flagcdn.com images ──────────────────────────────────────
+// Windows does not render regional-indicator emoji, so we use <img> flags.
+// https://flagcdn.com/w40/{code}.png  (40px wide, ~27px tall at 3:2 ratio)
 
-const COUNTRY_FLAGS = {
+const COUNTRY_CODES = {
   // South America
-  'Argentina': '🇦🇷', 'ARG': '🇦🇷',
-  'Brazil': '🇧🇷', 'BRA': '🇧🇷',
-  'Uruguay': '🇺🇾', 'URU': '🇺🇾',
-  'Colombia': '🇨🇴', 'COL': '🇨🇴',
-  'Ecuador': '🇪🇨', 'ECU': '🇪🇨',
-  'Chile': '🇨🇱', 'CHI': '🇨🇱',
-  'Peru': '🇵🇪', 'PER': '🇵🇪',
-  'Paraguay': '🇵🇾', 'PAR': '🇵🇾',
-  'Bolivia': '🇧🇴', 'BOL': '🇧🇴',
-  'Venezuela': '🇻🇪', 'VEN': '🇻🇪',
-  // North & Central America
-  'Mexico': '🇲🇽', 'MEX': '🇲🇽',
-  'USA': '🇺🇸', 'United States': '🇺🇸', 'US': '🇺🇸',
-  'Canada': '🇨🇦', 'CAN': '🇨🇦',
-  'Costa Rica': '🇨🇷', 'CRC': '🇨🇷',
-  'Honduras': '🇭🇳', 'HON': '🇭🇳',
-  'Panama': '🇵🇦', 'PAN': '🇵🇦',
-  'Jamaica': '🇯🇲', 'JAM': '🇯🇲',
+  Argentina: 'ar', ARG: 'ar',
+  Brazil: 'br', BRA: 'br',
+  Uruguay: 'uy', URU: 'uy',
+  Colombia: 'co', COL: 'co',
+  Ecuador: 'ec', ECU: 'ec',
+  Chile: 'cl', CHI: 'cl',
+  Peru: 'pe', PER: 'pe',
+  Paraguay: 'py', PAR: 'py',
+  Bolivia: 'bo', BOL: 'bo',
+  Venezuela: 've', VEN: 've',
+  // CONCACAF
+  Mexico: 'mx', MEX: 'mx',
+  USA: 'us', 'United States': 'us', US: 'us',
+  Canada: 'ca', CAN: 'ca',
+  'Costa Rica': 'cr', CRC: 'cr',
+  Honduras: 'hn', HON: 'hn',
+  Panama: 'pa', PAN: 'pa',
+  Jamaica: 'jm', JAM: 'jm',
   // Europe
-  'Spain': '🇪🇸', 'ESP': '🇪🇸',
-  'France': '🇫🇷', 'FRA': '🇫🇷',
-  'Germany': '🇩🇪', 'GER': '🇩🇪',
-  'England': '🏴󠁧󠁢󠁥󠁮󠁧󠁿', 'ENG': '🏴󠁧󠁢󠁥󠁮󠁧󠁿',
-  'Portugal': '🇵🇹', 'POR': '🇵🇹',
-  'Netherlands': '🇳🇱', 'NED': '🇳🇱', 'Holland': '🇳🇱',
-  'Belgium': '🇧🇪', 'BEL': '🇧🇪',
-  'Italy': '🇮🇹', 'ITA': '🇮🇹',
-  'Croatia': '🇭🇷', 'CRO': '🇭🇷',
-  'Switzerland': '🇨🇭', 'SUI': '🇨🇭',
-  'Denmark': '🇩🇰', 'DEN': '🇩🇰',
-  'Austria': '🇦🇹', 'AUT': '🇦🇹',
-  'Poland': '🇵🇱', 'POL': '🇵🇱',
-  'Czech Republic': '🇨🇿', 'CZE': '🇨🇿',
-  'Serbia': '🇷🇸', 'SRB': '🇷🇸',
-  'Ukraine': '🇺🇦', 'UKR': '🇺🇦',
-  'Hungary': '🇭🇺', 'HUN': '🇭🇺',
-  'Scotland': '🏴󠁧󠁢󠁳󠁣󠁴󠁿', 'SCO': '🏴󠁧󠁢󠁳󠁣󠁴󠁿',
-  'Turkey': '🇹🇷', 'TUR': '🇹🇷', 'Türkiye': '🇹🇷',
-  'Romania': '🇷🇴', 'ROU': '🇷🇴',
-  'Slovakia': '🇸🇰', 'SVK': '🇸🇰',
-  'Slovenia': '🇸🇮', 'SVN': '🇸🇮',
-  'Albania': '🇦🇱', 'ALB': '🇦🇱',
-  'Georgia': '🇬🇪', 'GEO': '🇬🇪',
-  'Greece': '🇬🇷', 'GRE': '🇬🇷',
-  'Wales': '🏴󠁧󠁢󠁷󠁬󠁳󠁿', 'WAL': '🏴󠁧󠁢󠁷󠁬󠁳󠁿',
-  'Norway': '🇳🇴', 'NOR': '🇳🇴',
-  'Sweden': '🇸🇪', 'SWE': '🇸🇪',
+  Spain: 'es', ESP: 'es',
+  France: 'fr', FRA: 'fr',
+  Germany: 'de', GER: 'de',
+  England: 'gb-eng', ENG: 'gb-eng',
+  Portugal: 'pt', POR: 'pt',
+  Netherlands: 'nl', NED: 'nl', Holland: 'nl',
+  Belgium: 'be', BEL: 'be',
+  Italy: 'it', ITA: 'it',
+  Croatia: 'hr', CRO: 'hr',
+  Switzerland: 'ch', SUI: 'ch',
+  Denmark: 'dk', DEN: 'dk',
+  Austria: 'at', AUT: 'at',
+  Poland: 'pl', POL: 'pl',
+  'Czech Republic': 'cz', CZE: 'cz', Czechia: 'cz',
+  Serbia: 'rs', SRB: 'rs',
+  Ukraine: 'ua', UKR: 'ua',
+  Hungary: 'hu', HUN: 'hu',
+  Scotland: 'gb-sct', SCO: 'gb-sct',
+  Turkey: 'tr', TUR: 'tr', Türkiye: 'tr',
+  Romania: 'ro', ROU: 'ro',
+  Slovakia: 'sk', SVK: 'sk',
+  Slovenia: 'si', SVN: 'si',
+  Albania: 'al', ALB: 'al',
+  Georgia: 'ge', GEO: 'ge',
+  Greece: 'gr', GRE: 'gr',
+  Wales: 'gb-wls', WAL: 'gb-wls',
+  Norway: 'no', NOR: 'no',
+  Sweden: 'se', SWE: 'se',
   // Africa
-  'Morocco': '🇲🇦', 'MAR': '🇲🇦',
-  'Senegal': '🇸🇳', 'SEN': '🇸🇳',
-  'Egypt': '🇪🇬', 'EGY': '🇪🇬',
-  'Nigeria': '🇳🇬', 'NGA': '🇳🇬',
-  "Côte d'Ivoire": '🇨🇮', 'Ivory Coast': '🇨🇮', 'CIV': '🇨🇮',
-  'Ghana': '🇬🇭', 'GHA': '🇬🇭',
-  'Cameroon': '🇨🇲', 'CMR': '🇨🇲',
-  'South Africa': '🇿🇦', 'RSA': '🇿🇦',
-  'Tunisia': '🇹🇳', 'TUN': '🇹🇳',
-  'Algeria': '🇩🇿', 'ALG': '🇩🇿',
-  'Mali': '🇲🇱', 'MLI': '🇲🇱',
-  'DR Congo': '🇨🇩', 'COD': '🇨🇩',
+  Morocco: 'ma', MAR: 'ma',
+  Senegal: 'sn', SEN: 'sn',
+  Egypt: 'eg', EGY: 'eg',
+  Nigeria: 'ng', NGA: 'ng',
+  "Côte d'Ivoire": 'ci', 'Ivory Coast': 'ci', CIV: 'ci',
+  Ghana: 'gh', GHA: 'gh',
+  Cameroon: 'cm', CMR: 'cm',
+  'South Africa': 'za', RSA: 'za',
+  Tunisia: 'tn', TUN: 'tn',
+  Algeria: 'dz', ALG: 'dz',
+  Mali: 'ml', MLI: 'ml',
+  'DR Congo': 'cd', COD: 'cd',
   // Asia / Oceania
-  'Japan': '🇯🇵', 'JPN': '🇯🇵',
-  'South Korea': '🇰🇷', 'KOR': '🇰🇷',
-  'Iran': '🇮🇷', 'IRN': '🇮🇷',
-  'Saudi Arabia': '🇸🇦', 'KSA': '🇸🇦',
-  'Qatar': '🇶🇦', 'QAT': '🇶🇦',
-  'Australia': '🇦🇺', 'AUS': '🇦🇺',
-  'New Zealand': '🇳🇿', 'NZL': '🇳🇿',
-  'China': '🇨🇳', 'CHN': '🇨🇳',
-  'Indonesia': '🇮🇩', 'IDN': '🇮🇩',
-  'Iraq': '🇮🇶', 'IRQ': '🇮🇶',
-  'Jordan': '🇯🇴', 'JOR': '🇯🇴',
-  'Uzbekistan': '🇺🇿', 'UZB': '🇺🇿',
-  'Bahrain': '🇧🇭', 'BHR': '🇧🇭',
-  'Oman': '🇴🇲', 'OMA': '🇴🇲',
+  Japan: 'jp', JPN: 'jp',
+  'South Korea': 'kr', KOR: 'kr',
+  Iran: 'ir', IRN: 'ir',
+  'Saudi Arabia': 'sa', KSA: 'sa',
+  Qatar: 'qa', QAT: 'qa',
+  Australia: 'au', AUS: 'au',
+  'New Zealand': 'nz', NZL: 'nz',
+  China: 'cn', CHN: 'cn',
+  Indonesia: 'id', IDN: 'id',
+  Iraq: 'iq', IRQ: 'iq',
+  Jordan: 'jo', JOR: 'jo',
+  Uzbekistan: 'uz', UZB: 'uz',
+  Bahrain: 'bh', BHR: 'bh',
+  Oman: 'om', OMA: 'om',
 }
 
-function countryFlag(name) {
-  if (!name) return ''
-  return COUNTRY_FLAGS[name] || COUNTRY_FLAGS[name.toUpperCase()] || ''
+function getCountryCode(name) {
+  if (!name) return null
+  return COUNTRY_CODES[name] || COUNTRY_CODES[name.toUpperCase()] || null
+}
+
+function FlagImg({ country, size = 18, style: extraStyle }) {
+  const code = getCountryCode(country)
+  if (!code) return null
+  return (
+    <img
+      src={`https://flagcdn.com/w40/${code}.png`}
+      width={size}
+      height={Math.round(size * 0.67)}
+      alt={country}
+      style={{ borderRadius: '2px', verticalAlign: 'middle', flexShrink: 0, ...extraStyle }}
+    />
+  )
 }
 
 // ─── LOCAL STORAGE ───────────────────────────────────────────────────────────
@@ -762,7 +778,11 @@ function MainApp() {
     setFetchError('')
     try {
       const res = await fetch('/api/results')
-      if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`)
+      if (!res.ok) {
+        let errMsg = `HTTP ${res.status}`
+        try { const j = await res.json(); errMsg = j.error || errMsg } catch { /* use status */ }
+        throw new Error(errMsg)
+      }
       const data = await res.json()
       const now = Date.now()
       setLastFetch(now)
@@ -1007,15 +1027,19 @@ function LeaderboardTab({ leaderboard }) {
 }
 
 function LeaderboardRow({ player, rank }) {
-  const { accent, flag, name, team, totalPts, gf, ga, currentStage, matchCount } = player
+  const { accent, name, team, totalPts, gf, ga, currentStage, matchCount } = player
+  const medal = rank === 0 ? '🥇' : rank === 1 ? '🥈' : rank === 2 ? '🥉' : null
   return (
     <div style={css.leaderboardCard(rank)}>
       <div style={css.rankNum(rank)}>
-        {rank === 0 ? '🥇' : rank === 1 ? '🥈' : rank === 2 ? '🥉' : rank + 1}
+        {medal || rank + 1}
       </div>
       <div style={css.accentBar(accent)} />
       <div style={css.playerInfo}>
-        <div style={{ ...css.playerName, color: accent }}>{flag} {name}</div>
+        <div style={{ ...css.playerName, color: accent, display: 'flex', alignItems: 'center', gap: '7px' }}>
+          <FlagImg country={team} size={20} />
+          {name}
+        </div>
         <div style={css.playerTeam}>{team}</div>
         <div style={css.stageBadge(accent)}>{stageLabel(currentStage)}</div>
       </div>
@@ -1075,7 +1099,8 @@ function MatchesTab({ matches, onDelete, onEdit, onAdd }) {
             alignItems: 'center',
             gap: '6px',
           }}>
-            {player.flag} {player.name.toUpperCase()} · {player.team}
+            <FlagImg country={player.team} size={16} extraStyle={{ marginRight: '4px' }} />
+            {player.name.toUpperCase()} · {player.team}
           </div>
           {pm.map(m => (
             <MatchRow key={m.id} match={m} player={player} onDelete={onDelete} onEdit={onEdit} />
@@ -1104,10 +1129,8 @@ function MatchRow({ match, player, onDelete, onEdit }) {
       }}>{result}</div>
       <div style={{ ...css.matchScore, color: player.accent }}>{match.gf}–{match.ga}</div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: '13px', color: '#c0cce0' }}>
-          {countryFlag(match.opponent) && (
-            <span style={{ marginRight: '5px' }}>{countryFlag(match.opponent)}</span>
-          )}
+        <div style={{ fontSize: '13px', color: '#c0cce0', display: 'flex', alignItems: 'center', gap: '5px' }}>
+          <FlagImg country={match.opponent} size={14} />
           {match.opponent}
           {match.starScored && <span style={{ color: '#facc15', marginLeft: '6px', fontSize: '12px' }}>★</span>}
         </div>
@@ -1133,15 +1156,13 @@ function SuggestionCard({ sug, onAccept, onDismiss }) {
   return (
     <div style={css.suggestionCard(player.accent)}>
       <div style={css.sugHeader}>
-        <span style={css.sugFlag}>{player.flag}</span>
+        <FlagImg country={player.team} size={22} />
         <span style={{ ...css.sugTeam, color: player.accent }}>{player.name} · {player.team}</span>
         <span style={css.sugStage(player.accent)}>{stageLabel(sug.stage)}</span>
       </div>
       <div style={css.sugScore}>{sug.gf} – {sug.ga}</div>
       <div style={css.sugOpponent}>
-        {countryFlag(sug.opponent) && (
-          <span style={{ marginRight: '5px' }}>{countryFlag(sug.opponent)}</span>
-        )}
+        <FlagImg country={sug.opponent} size={15} extraStyle={{ marginRight: '5px' }} />
         vs {sug.opponent}
       </div>
       <div style={css.sugMeta}>

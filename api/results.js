@@ -132,12 +132,15 @@ export default async function handler(req, res) {
       return res.status(502).json({ error: 'No text response from model' })
     }
 
-    // Strip markdown code fences if present
-    const cleaned = rawText.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '')
+    // Strip markdown code fences, then extract the JSON object even if the
+    // model prepended an explanation paragraph before the JSON.
+    const stripped = rawText.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '')
+    const jsonMatch = stripped.match(/\{[\s\S]*\}/)
+    const jsonStr = jsonMatch ? jsonMatch[0] : stripped
 
     let parsed
     try {
-      parsed = JSON.parse(cleaned)
+      parsed = JSON.parse(jsonStr)
     } catch {
       return res.status(502).json({ error: 'Failed to parse model response as JSON', raw: rawText })
     }
