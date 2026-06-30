@@ -46,6 +46,7 @@ const PLAYERS = [
 
 const STAGES = {
   group: { label: 'Group Stage', rank: 0 },
+  r32: { label: 'Round of 32', rank: 1 },
   r16: { label: 'Round of 16', rank: 3 },
   qf: { label: 'Quarter-Final', rank: 5 },
   sf: { label: 'Semi-Final', rank: 8 },
@@ -55,6 +56,7 @@ const STAGES = {
 
 const STAGE_BONUS = {
   group: 0,
+  r32: 2,
   r16: 3,
   qf: 5,
   sf: 8,
@@ -65,9 +67,12 @@ const STAGE_BONUS = {
 // ─── SCORING ─────────────────────────────────────────────────────────────────
 
 function computeMatchPoints(match) {
-  const { gf, ga, starScored } = match
+  const { gf, ga, starScored, penWin } = match
   let pts = 0
-  if (gf > ga) pts += 3
+  // penWin defined = decided on penalties; true = won, false = lost
+  if (penWin === true) pts += 3
+  else if (penWin === false) pts += 0
+  else if (gf > ga) pts += 3
   else if (gf === ga) pts += 1
   pts += gf
   if (ga === 0) pts += 1
@@ -100,7 +105,12 @@ function aggregatePlayer(pid, matches) {
     if (rank > currentStageRank) { currentStageRank = rank; currentStage = m.stage }
   }
 
-  return { pid, totalPts, gf, ga, currentStage, currentStageRank, matchCount: playerMatches.length }
+  const knockoutStages = new Set(['r32', 'r16', 'qf', 'sf', 'final'])
+  const eliminated = playerMatches.some(m =>
+    knockoutStages.has(m.stage) && (m.gf < m.ga || m.penWin === false)
+  )
+
+  return { pid, totalPts, gf, ga, currentStage, currentStageRank, matchCount: playerMatches.length, eliminated }
 }
 
 function buildLeaderboard(matches) {
@@ -261,8 +271,8 @@ function saveNextGames(g) { localStorage.setItem(LS_NEXT_GAMES, JSON.stringify(g
 function encodeSharePayload(matches) {
   const payload = {
     ts: Date.now(),
-    matches: matches.map(({ pid, opponent, gf, ga, stage, starScored, date }) => ({
-      pid, opponent, gf, ga, stage, starScored, date,
+    matches: matches.map(({ pid, opponent, gf, ga, stage, starScored, date, penWin }) => ({
+      pid, opponent, gf, ga, stage, starScored, date, penWin,
     })),
   }
   return LZString.compressToEncodedURIComponent(JSON.stringify(payload))
@@ -1096,33 +1106,50 @@ function ErrorScreen({ message }) {
 // ─── LEADERBOARD TAB ─────────────────────────────────────────────────────────
 
 function LeaderboardTab({ leaderboard, nextGames = {} }) {
+  const active = leaderboard.filter(p => !p.eliminated)
+  const out = leaderboard.filter(p => p.eliminated)
   return (
     <div>
-      {leaderboard.map((p, i) => (
+      {active.map((p, i) => (
         <LeaderboardRow key={p.id} player={p} rank={i} nextGame={nextGames[p.id]} />
       ))}
+      {out.length > 0 && (
+        <>
+          <div style={{ ...css.sectionLabel, marginTop: '28px', color: '#5a2a2a' }}>Crashed Out</div>
+          {out.map(p => (
+            <LeaderboardRow key={p.id} player={p} rank={null} nextGame={null} eliminated />
+          ))}
+        </>
+      )}
     </div>
   )
 }
 
-function LeaderboardRow({ player, rank, nextGame }) {
+function LeaderboardRow({ player, rank, nextGame, eliminated = false }) {
   const { accent, name, team, totalPts, gf, ga, currentStage, matchCount } = player
   const medal = rank === 0 ? '🥇' : rank === 1 ? '🥈' : rank === 2 ? '🥉' : null
+  const dimAccent = eliminated ? accent + '55' : accent
   return (
-    <div style={css.leaderboardCard(rank)}>
-      <div style={css.rankNum(rank)}>
-        {medal || rank + 1}
+    <div style={{
+      ...css.leaderboardCard(rank),
+      ...(eliminated ? { background: '#0c0f14', border: '1px solid #1a1a22', opacity: 0.7 } : {}),
+    }}>
+      <div style={{ ...css.rankNum(rank), color: eliminated ? '#3a2a2a' : undefined }}>
+        {eliminated ? '✕' : (medal || rank + 1)}
       </div>
-      <div style={css.accentBar(accent)} />
+      <div style={{ ...css.accentBar(dimAccent), opacity: eliminated ? 0.35 : 0.85 }} />
       <div style={css.playerInfo}>
-        <div style={{ ...css.playerName, color: accent, display: 'flex', alignItems: 'center', gap: '7px' }}>
+        <div style={{ ...css.playerName, color: dimAccent, display: 'flex', alignItems: 'center', gap: '7px' }}>
           <FlagImg country={team} size={20} />
           {name}
         </div>
         <div style={css.playerTeam}>{team}</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginTop: '4px', flexWrap: 'wrap' }}>
-          <div style={css.stageBadge(accent)}>{stageLabel(currentStage)}</div>
-          {nextGame && (
+          {eliminated
+            ? <div style={css.stageBadge('#f87171')}>OUT · {stageLabel(currentStage)}</div>
+            : <div style={css.stageBadge(accent)}>{stageLabel(currentStage)}</div>
+          }
+          {nextGame && !eliminated && (
             <div style={{
               fontFamily: 'Spline Sans Mono, monospace',
               fontSize: '10px',
@@ -1139,16 +1166,16 @@ function LeaderboardRow({ player, rank, nextGame }) {
       </div>
       <div style={css.statsRow}>
         <div style={css.statBlock}>
-          <div style={css.statVal}>{totalPts}</div>
+          <div style={{ ...css.statVal, color: eliminated ? '#3a3a4a' : '#e8ecf4' }}>{totalPts}</div>
           <div style={css.statLabel}>PTS</div>
         </div>
         <div style={css.divider} />
         <div style={css.statBlock}>
-          <div style={{ ...css.statVal, fontSize: '16px', color: '#6b8fcc' }}>{gf}</div>
+          <div style={{ ...css.statVal, fontSize: '16px', color: eliminated ? '#2a3545' : '#6b8fcc' }}>{gf}</div>
           <div style={css.statLabel}>GF</div>
         </div>
         <div style={css.statBlock}>
-          <div style={{ ...css.statVal, fontSize: '16px', color: '#6b8fcc' }}>{ga}</div>
+          <div style={{ ...css.statVal, fontSize: '16px', color: eliminated ? '#2a3545' : '#6b8fcc' }}>{ga}</div>
           <div style={css.statLabel}>GA</div>
         </div>
         <div style={css.statBlock}>
@@ -1193,7 +1220,7 @@ function MatchesTab({ matches, onDelete, onEdit, onAdd }) {
             alignItems: 'center',
             gap: '6px',
           }}>
-            <FlagImg country={player.team} size={16} extraStyle={{ marginRight: '4px' }} />
+            <FlagImg country={player.team} size={16} style={{ marginRight: '4px' }} />
             {player.name.toUpperCase()} · {player.team}
           </div>
           {pm.map(m => (
@@ -1206,7 +1233,9 @@ function MatchesTab({ matches, onDelete, onEdit, onAdd }) {
 }
 
 function MatchRow({ match, player, onDelete, onEdit }) {
-  const result = match.gf > match.ga ? 'W' : match.gf === match.ga ? 'D' : 'L'
+  const { gf, ga, penWin } = match
+  const result = penWin === true ? 'W' : penWin === false ? 'L' : gf > ga ? 'W' : gf === ga ? 'D' : 'L'
+  const resultLabel = penWin !== undefined ? `${result}(P)` : result
   const resultColor = result === 'W' ? '#4ade80' : result === 'D' ? '#facc15' : '#f87171'
   const pts = computeMatchPoints(match)
 
@@ -1215,18 +1244,23 @@ function MatchRow({ match, player, onDelete, onEdit }) {
       <div style={{
         fontFamily: 'Spline Sans Mono, monospace',
         fontWeight: 700,
-        fontSize: '12px',
+        fontSize: '11px',
         color: resultColor,
-        width: '16px',
+        width: '26px',
         textAlign: 'center',
         flexShrink: 0,
-      }}>{result}</div>
+      }}>{resultLabel}</div>
       <div style={{ ...css.matchScore, color: player.accent }}>{match.gf}–{match.ga}</div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: '13px', color: '#c0cce0', display: 'flex', alignItems: 'center', gap: '5px' }}>
           <FlagImg country={match.opponent} size={14} />
           {match.opponent}
           {match.starScored && <span style={{ color: '#facc15', marginLeft: '6px', fontSize: '12px' }}>★</span>}
+          {penWin !== undefined && (
+            <span style={{ fontSize: '10px', color: penWin ? '#4ade80' : '#f87171', marginLeft: '4px', fontFamily: 'Spline Sans Mono, monospace' }}>
+              {penWin ? 'won pens' : 'lost pens'}
+            </span>
+          )}
         </div>
         <div style={css.matchMeta}>{stageLabel(match.stage)} · {match.date}</div>
       </div>
@@ -1244,7 +1278,8 @@ function MatchRow({ match, player, onDelete, onEdit }) {
 function SuggestionCard({ sug, onAccept, onDismiss }) {
   const player = playerByPid(sug.pid)
   if (!player) return null
-  const result = sug.gf > sug.ga ? 'WIN' : sug.gf === sug.ga ? 'DRAW' : 'LOSS'
+  const { gf, ga, penWin } = sug
+  const result = penWin === true ? 'WIN (PENS)' : penWin === false ? 'LOSS (PENS)' : gf > ga ? 'WIN' : gf === ga ? 'DRAW' : 'LOSS'
   const pts = computeMatchPoints(sug)
 
   return (
@@ -1254,9 +1289,16 @@ function SuggestionCard({ sug, onAccept, onDismiss }) {
         <span style={{ ...css.sugTeam, color: player.accent }}>{player.name} · {player.team}</span>
         <span style={css.sugStage(player.accent)}>{stageLabel(sug.stage)}</span>
       </div>
-      <div style={css.sugScore}>{sug.gf} – {sug.ga}</div>
+      <div style={css.sugScore}>
+        {sug.gf} – {sug.ga}
+        {penWin !== undefined && (
+          <span style={{ fontSize: '16px', color: penWin ? '#4ade80' : '#f87171', marginLeft: '10px', fontFamily: 'Archivo, sans-serif', fontWeight: 600 }}>
+            {penWin ? '↑ PENS' : '↓ PENS'}
+          </span>
+        )}
+      </div>
       <div style={css.sugOpponent}>
-        <FlagImg country={sug.opponent} size={15} extraStyle={{ marginRight: '5px' }} />
+        <FlagImg country={sug.opponent} size={15} style={{ marginRight: '5px' }} />
         vs {sug.opponent}
       </div>
       <div style={css.sugMeta}>
@@ -1282,17 +1324,26 @@ const EMPTY_FORM = {
   stage: 'group',
   starScored: false,
   date: new Date().toISOString().slice(0, 10),
+  penShootout: false,
+  penWin: undefined,
 }
 
 function MatchModal({ match, onSave, onClose }) {
-  const [form, setForm] = useState({ ...EMPTY_FORM, ...match })
+  const existingPenShootout = match?.penWin !== undefined && match?.penWin !== null
+  const [form, setForm] = useState({ ...EMPTY_FORM, ...match, penShootout: existingPenShootout })
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
   const player = playerByPid(form.pid)
 
   const handleSubmit = (e) => {
     e.preventDefault()
     if (!form.opponent.trim()) return
-    onSave({ ...form, gf: parseInt(form.gf, 10) || 0, ga: parseInt(form.ga, 10) || 0 })
+    const penWin = form.penShootout ? Boolean(form.penWin) : undefined
+    onSave({
+      ...form,
+      gf: parseInt(form.gf, 10) || 0,
+      ga: parseInt(form.ga, 10) || 0,
+      penWin,
+    })
   }
 
   return (
@@ -1321,11 +1372,11 @@ function MatchModal({ match, onSave, onClose }) {
           </div>
           <div style={{ display: 'flex', gap: '12px' }}>
             <div style={{ ...css.formGroup, flex: 1 }}>
-              <label style={css.label}>{player?.team} Goals</label>
+              <label style={css.label}>{player?.team} Goals (90+ET)</label>
               <input style={css.input} type="number" min="0" max="20" value={form.gf} onChange={e => set('gf', e.target.value)} />
             </div>
             <div style={{ ...css.formGroup, flex: 1 }}>
-              <label style={css.label}>Opponent Goals</label>
+              <label style={css.label}>Opponent Goals (90+ET)</label>
               <input style={css.input} type="number" min="0" max="20" value={form.ga} onChange={e => set('ga', e.target.value)} />
             </div>
           </div>
@@ -1341,6 +1392,35 @@ function MatchModal({ match, onSave, onClose }) {
             <label style={css.label}>Date</label>
             <input style={css.input} type="date" value={form.date} onChange={e => set('date', e.target.value)} />
           </div>
+          <div style={css.formGroup}>
+            <label style={css.checkbox}>
+              <input
+                type="checkbox"
+                checked={form.penShootout}
+                onChange={e => {
+                  set('penShootout', e.target.checked)
+                  if (!e.target.checked) set('penWin', undefined)
+                  else if (form.penWin === undefined) set('penWin', true)
+                }}
+              />
+              <span>Decided on penalties</span>
+            </label>
+          </div>
+          {form.penShootout && (
+            <div style={{ ...css.formGroup, paddingLeft: '24px' }}>
+              <label style={css.label}>Penalty result</label>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <label style={{ ...css.checkbox, color: form.penWin ? '#4ade80' : '#a0b0cc' }}>
+                  <input type="radio" name="penWin" checked={form.penWin === true} onChange={() => set('penWin', true)} />
+                  <span>Won on pens</span>
+                </label>
+                <label style={{ ...css.checkbox, color: !form.penWin ? '#f87171' : '#a0b0cc' }}>
+                  <input type="radio" name="penWin" checked={form.penWin === false} onChange={() => set('penWin', false)} />
+                  <span>Lost on pens</span>
+                </label>
+              </div>
+            </div>
+          )}
           <div style={css.formGroup}>
             <label style={css.checkbox}>
               <input type="checkbox" checked={form.starScored} onChange={e => set('starScored', e.target.checked)} />

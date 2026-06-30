@@ -10,11 +10,12 @@ const SYSTEM_PROMPT = `You are a FIFA World Cup 2026 tracker. Use web search to 
     {
       "pid": "james" | "abi" | "anne" | "stevie",
       "opponent": "<opposing team full name>",
-      "gf": <goals scored by tracked team, integer>,
-      "ga": <goals conceded, integer>,
-      "stage": "group" | "r16" | "qf" | "sf" | "final" | "champion",
+      "gf": <goals scored by tracked team in 90+ET mins, integer>,
+      "ga": <goals conceded in 90+ET mins, integer>,
+      "stage": "group" | "r32" | "r16" | "qf" | "sf" | "final" | "champion",
       "starScored": <true if the star player scored, false otherwise>,
-      "date": "<YYYY-MM-DD>"
+      "date": "<YYYY-MM-DD>",
+      "penWin": <true if team won on penalties, false if lost on penalties, omit if not decided by shootout>
     }
   ],
   "nextGames": {
@@ -34,11 +35,12 @@ pid mapping:
 - "stevie" = Portugal   (star: Bruno Fernandes)
 
 stage mapping:
-- "group" = group stage  |  "r16" = round of 16  |  "qf" = quarter-final
+- "group" = group stage  |  "r32" = round of 32  |  "r16" = round of 16  |  "qf" = quarter-final
 - "sf" = semi-final  |  "final" = final (runner-up)  |  "champion" = champion
 
 Rules:
 - matches: only completed matches with a known final score. Include ALL played so far.
+- For knockout matches decided by penalty shootout: gf/ga = score after 90+ET minutes (often tied), penWin = true if the tracked team won the shootout, false if they lost. This is critical — do not omit penWin for any shootout match.
 - nextGames: the next SCHEDULED (not yet played) match for each team still in the tournament. Omit a team if they are eliminated or if their next fixture is not yet confirmed. Kickoff must be converted to BST (UTC+1).
 - headline: the single most interesting World Cup news story from today or the last 24 hours.
 - Return ONLY the JSON — no markdown, no explanation.`
@@ -49,7 +51,7 @@ const USER_PROMPT = `Search for the latest 2026 FIFA World Cup information for:
 3. Netherlands (pid: anne, star: Virgil van Dijk)
 4. Portugal (pid: stevie, star: Bruno Fernandes)
 
-Find: (a) all completed match results, (b) each team's next scheduled fixture with kickoff in BST, (c) today's top World Cup headline. Return the JSON.`
+Find: (a) all completed match results including Round of 32 games — for any match decided by penalty shootout include the regular/ET score AND set penWin correctly, (b) each team's next scheduled fixture with kickoff in BST, (c) today's top World Cup headline. Return the JSON.`
 
 async function runLoop(apiKey) {
   const messages = [{ role: 'user', content: USER_PROMPT }]
@@ -128,7 +130,7 @@ export default async function handler(req, res) {
     }
 
     const validPids = new Set(['james', 'abi', 'anne', 'stevie'])
-    const validStages = new Set(['group', 'r16', 'qf', 'sf', 'final', 'champion'])
+    const validStages = new Set(['group', 'r32', 'r16', 'qf', 'sf', 'final', 'champion'])
 
     const matches = parsed.matches
       .filter(m =>
@@ -138,15 +140,19 @@ export default async function handler(req, res) {
         m.gf >= 0 && m.ga >= 0 &&
         validStages.has(m.stage)
       )
-      .map(m => ({
-        pid: m.pid,
-        opponent: m.opponent.trim(),
-        gf: m.gf,
-        ga: m.ga,
-        stage: m.stage,
-        starScored: !!m.starScored,
-        date: m.date || '',
-      }))
+      .map(m => {
+        const entry = {
+          pid: m.pid,
+          opponent: m.opponent.trim(),
+          gf: m.gf,
+          ga: m.ga,
+          stage: m.stage,
+          starScored: !!m.starScored,
+          date: m.date || '',
+        }
+        if (m.penWin === true || m.penWin === false) entry.penWin = m.penWin
+        return entry
+      })
 
     // Pass through nextGames, validating each entry
     const nextGames = {}
