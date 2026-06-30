@@ -15,7 +15,7 @@ const SYSTEM_PROMPT = `You are a FIFA World Cup 2026 tracker. Use web search to 
       "stage": "group" | "r32" | "r16" | "qf" | "sf" | "final" | "champion",
       "starScored": <true if the star player scored, false otherwise>,
       "date": "<YYYY-MM-DD>",
-      "penWin": <true if team won on penalties, false if lost on penalties, omit if not decided by shootout>
+      "penWin": true | false | null
     }
   ],
   "nextGames": {
@@ -40,7 +40,7 @@ stage mapping:
 
 Rules:
 - matches: only completed matches with a known final score. Include ALL played so far.
-- For knockout matches decided by penalty shootout: gf/ga = score after 90+ET minutes (often tied), penWin = true if the tracked team won the shootout, false if they lost. This is critical — do not omit penWin for any shootout match.
+- penWin: always include this field. Set true if the tracked team won on penalties, false if they lost on penalties, null if the match was not decided by a shootout.
 - nextGames: the next SCHEDULED (not yet played) match for each team still in the tournament. Omit a team if they are eliminated or if their next fixture is not yet confirmed. Kickoff must be converted to BST (UTC+1).
 - headline: the single most interesting World Cup news story from today or the last 24 hours.
 - Return ONLY the JSON — no markdown, no explanation.`
@@ -114,13 +114,19 @@ export default async function handler(req, res) {
     const rawText = await runLoop(apiKey)
     if (!rawText) return res.status(502).json({ error: 'No text response from model' })
 
-    const stripped = rawText.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '')
-    const jsonMatch = stripped.match(/\{[\s\S]*\}/)
-    const jsonStr = jsonMatch ? jsonMatch[0] : stripped
+    // Strip any markdown code fences wherever they appear, then extract the JSON object
+    const fenceStripped = rawText.trim().replace(/```(?:json)?/gi, '')
+    const jsonMatch = fenceStripped.match(/\{[\s\S]*\}/)
+    const jsonStr = jsonMatch ? jsonMatch[0] : fenceStripped
+
+    // Sanitise common LLM JSON mistakes before parsing
+    const sanitised = jsonStr
+      .replace(/:\s*undefined/g, ': null')   // undefined is not valid JSON
+      .replace(/,(\s*[}\]])/g, '$1')          // trailing commas
 
     let parsed
     try {
-      parsed = JSON.parse(jsonStr)
+      parsed = JSON.parse(sanitised)
     } catch {
       return res.status(502).json({ error: 'Failed to parse model response as JSON', raw: rawText })
     }
