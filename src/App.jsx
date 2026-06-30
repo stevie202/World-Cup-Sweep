@@ -126,8 +126,16 @@ function buildLeaderboard(matches) {
 
 // ─── FINGERPRINT ─────────────────────────────────────────────────────────────
 
-function fingerprint(m) {
+// Base identifies the same real-world match (pid + opponent + score)
+function fingerprintBase(m) {
   return `${m.pid}|${m.opponent}|${m.gf}-${m.ga}`
+}
+
+// Full fingerprint includes penalty outcome so a pen-updated version of an
+// already-saved match surfaces as a new suggestion rather than being dropped.
+function fingerprint(m) {
+  const pen = m.penWin === true ? '|penW' : m.penWin === false ? '|penL' : ''
+  return fingerprintBase(m) + pen
 }
 
 // ─── COUNTRY CODES → flagcdn.com images ──────────────────────────────────────
@@ -877,7 +885,16 @@ function MainApp() {
 
       const pending = (data.matches || []).filter(m => {
         const fp = fingerprint(m)
-        return !dismissed.has(fp) && !matches.some(ex => fingerprint(ex) === fp)
+        if (dismissed.has(fp)) return false
+        if (matches.some(ex => fingerprint(ex) === fp)) return false
+        // Surface as a suggestion if the same match is already saved without
+        // penalty info and the incoming result now carries penWin — lets the
+        // user accept the update so eliminated status is recorded correctly.
+        if (m.penWin !== undefined && m.penWin !== null) {
+          const baseFp = fingerprintBase(m)
+          if (matches.some(ex => fingerprintBase(ex) === baseFp && ex.penWin === undefined)) return true
+        }
+        return !matches.some(ex => fingerprintBase(ex) === fingerprintBase(m))
       })
       setSuggestions(pending)
       setFetchState('done')
@@ -888,16 +905,25 @@ function MainApp() {
   }, [dismissed, matches])
 
   const acceptSuggestion = (sug) => {
-    setMatches(prev => [...prev, {
-      id: crypto.randomUUID(),
-      pid: sug.pid,
-      opponent: sug.opponent,
-      gf: sug.gf,
-      ga: sug.ga,
-      stage: sug.stage,
-      starScored: sug.starScored || false,
-      date: sug.date || new Date().toISOString().slice(0, 10),
-    }])
+    setMatches(prev => {
+      // If this suggestion carries a penalty result, replace any saved version
+      // of the same match that's missing penWin rather than adding a duplicate.
+      const base = fingerprintBase(sug)
+      const filtered = (sug.penWin !== undefined && sug.penWin !== null)
+        ? prev.filter(m => !(fingerprintBase(m) === base && m.penWin === undefined))
+        : prev
+      return [...filtered, {
+        id: crypto.randomUUID(),
+        pid: sug.pid,
+        opponent: sug.opponent,
+        gf: sug.gf,
+        ga: sug.ga,
+        stage: sug.stage,
+        starScored: sug.starScored || false,
+        date: sug.date || new Date().toISOString().slice(0, 10),
+        penWin: sug.penWin ?? undefined,
+      }]
+    })
     setSuggestions(prev => prev.filter(s => fingerprint(s) !== fingerprint(sug)))
   }
 
