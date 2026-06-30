@@ -105,7 +105,12 @@ function aggregatePlayer(pid, matches) {
     if (rank > currentStageRank) { currentStageRank = rank; currentStage = m.stage }
   }
 
-  return { pid, totalPts, gf, ga, currentStage, currentStageRank, matchCount: playerMatches.length }
+  const knockoutStages = new Set(['r32', 'r16', 'qf', 'sf', 'final'])
+  const eliminated = playerMatches.some(m =>
+    knockoutStages.has(m.stage) && (m.gf < m.ga || m.penWin === false)
+  )
+
+  return { pid, totalPts, gf, ga, currentStage, currentStageRank, matchCount: playerMatches.length, eliminated }
 }
 
 function buildLeaderboard(matches) {
@@ -266,8 +271,8 @@ function saveNextGames(g) { localStorage.setItem(LS_NEXT_GAMES, JSON.stringify(g
 function encodeSharePayload(matches) {
   const payload = {
     ts: Date.now(),
-    matches: matches.map(({ pid, opponent, gf, ga, stage, starScored, date }) => ({
-      pid, opponent, gf, ga, stage, starScored, date,
+    matches: matches.map(({ pid, opponent, gf, ga, stage, starScored, date, penWin }) => ({
+      pid, opponent, gf, ga, stage, starScored, date, penWin,
     })),
   }
   return LZString.compressToEncodedURIComponent(JSON.stringify(payload))
@@ -1101,33 +1106,50 @@ function ErrorScreen({ message }) {
 // ─── LEADERBOARD TAB ─────────────────────────────────────────────────────────
 
 function LeaderboardTab({ leaderboard, nextGames = {} }) {
+  const active = leaderboard.filter(p => !p.eliminated)
+  const out = leaderboard.filter(p => p.eliminated)
   return (
     <div>
-      {leaderboard.map((p, i) => (
+      {active.map((p, i) => (
         <LeaderboardRow key={p.id} player={p} rank={i} nextGame={nextGames[p.id]} />
       ))}
+      {out.length > 0 && (
+        <>
+          <div style={{ ...css.sectionLabel, marginTop: '28px', color: '#5a2a2a' }}>Crashed Out</div>
+          {out.map(p => (
+            <LeaderboardRow key={p.id} player={p} rank={null} nextGame={null} eliminated />
+          ))}
+        </>
+      )}
     </div>
   )
 }
 
-function LeaderboardRow({ player, rank, nextGame }) {
+function LeaderboardRow({ player, rank, nextGame, eliminated = false }) {
   const { accent, name, team, totalPts, gf, ga, currentStage, matchCount } = player
   const medal = rank === 0 ? '🥇' : rank === 1 ? '🥈' : rank === 2 ? '🥉' : null
+  const dimAccent = eliminated ? accent + '55' : accent
   return (
-    <div style={css.leaderboardCard(rank)}>
-      <div style={css.rankNum(rank)}>
-        {medal || rank + 1}
+    <div style={{
+      ...css.leaderboardCard(rank),
+      ...(eliminated ? { background: '#0c0f14', border: '1px solid #1a1a22', opacity: 0.7 } : {}),
+    }}>
+      <div style={{ ...css.rankNum(rank), color: eliminated ? '#3a2a2a' : undefined }}>
+        {eliminated ? '✕' : (medal || rank + 1)}
       </div>
-      <div style={css.accentBar(accent)} />
+      <div style={{ ...css.accentBar(dimAccent), opacity: eliminated ? 0.35 : 0.85 }} />
       <div style={css.playerInfo}>
-        <div style={{ ...css.playerName, color: accent, display: 'flex', alignItems: 'center', gap: '7px' }}>
+        <div style={{ ...css.playerName, color: dimAccent, display: 'flex', alignItems: 'center', gap: '7px' }}>
           <FlagImg country={team} size={20} />
           {name}
         </div>
         <div style={css.playerTeam}>{team}</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '7px', marginTop: '4px', flexWrap: 'wrap' }}>
-          <div style={css.stageBadge(accent)}>{stageLabel(currentStage)}</div>
-          {nextGame && (
+          {eliminated
+            ? <div style={css.stageBadge('#f87171')}>OUT · {stageLabel(currentStage)}</div>
+            : <div style={css.stageBadge(accent)}>{stageLabel(currentStage)}</div>
+          }
+          {nextGame && !eliminated && (
             <div style={{
               fontFamily: 'Spline Sans Mono, monospace',
               fontSize: '10px',
@@ -1144,16 +1166,16 @@ function LeaderboardRow({ player, rank, nextGame }) {
       </div>
       <div style={css.statsRow}>
         <div style={css.statBlock}>
-          <div style={css.statVal}>{totalPts}</div>
+          <div style={{ ...css.statVal, color: eliminated ? '#3a3a4a' : '#e8ecf4' }}>{totalPts}</div>
           <div style={css.statLabel}>PTS</div>
         </div>
         <div style={css.divider} />
         <div style={css.statBlock}>
-          <div style={{ ...css.statVal, fontSize: '16px', color: '#6b8fcc' }}>{gf}</div>
+          <div style={{ ...css.statVal, fontSize: '16px', color: eliminated ? '#2a3545' : '#6b8fcc' }}>{gf}</div>
           <div style={css.statLabel}>GF</div>
         </div>
         <div style={css.statBlock}>
-          <div style={{ ...css.statVal, fontSize: '16px', color: '#6b8fcc' }}>{ga}</div>
+          <div style={{ ...css.statVal, fontSize: '16px', color: eliminated ? '#2a3545' : '#6b8fcc' }}>{ga}</div>
           <div style={css.statLabel}>GA</div>
         </div>
         <div style={css.statBlock}>
@@ -1198,7 +1220,7 @@ function MatchesTab({ matches, onDelete, onEdit, onAdd }) {
             alignItems: 'center',
             gap: '6px',
           }}>
-            <FlagImg country={player.team} size={16} extraStyle={{ marginRight: '4px' }} />
+            <FlagImg country={player.team} size={16} style={{ marginRight: '4px' }} />
             {player.name.toUpperCase()} · {player.team}
           </div>
           {pm.map(m => (
@@ -1276,7 +1298,7 @@ function SuggestionCard({ sug, onAccept, onDismiss }) {
         )}
       </div>
       <div style={css.sugOpponent}>
-        <FlagImg country={sug.opponent} size={15} extraStyle={{ marginRight: '5px' }} />
+        <FlagImg country={sug.opponent} size={15} style={{ marginRight: '5px' }} />
         vs {sug.opponent}
       </div>
       <div style={css.sugMeta}>
